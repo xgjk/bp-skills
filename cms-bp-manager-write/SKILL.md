@@ -1,17 +1,17 @@
 ---
 name: cms-bp-manager-write
-description: BP 日常维护（写入更新）Skill：支持目标/成果/举措增删改与对齐承接维护（以 API 支持为准），并强制联动 BP 审计；同时保留“仅审计”独立入口。
+description: BP 日常维护（写入更新）Skill：支持目标/成果/举措增删改与对齐承接维护（以 API 支持为准），并强制联动 BP 审计；同时保留"仅审计"独立入口。
 skillcode: cms-bp-manager-write
 github: https://github.com/xgjk/bp-skills/tree/main/cms-bp-manager-write
 dependencies:
   - cms-auth-skills
 ---
 
-# bp-manager-write — 索引
+# bp-manager-write - 索引
 
 本文件提供能力边界、路由规则与使用约束。详细说明见 `references/`，实际执行见 `scripts/`。
 
-**当前版本**: 0.1.0  
+**当前版本**: 1.0.0
 **接口版本**: v1（BP Open API，`/open-api/bp/*`）
 
 ## 能力概览（2 块能力）
@@ -32,7 +32,7 @@ dependencies:
 
 ## 输入完整性规则
 
-- 写操作必须携带“定位对象所需最小输入”（如 `goalId`、`keyResultId` 等）
+- 写操作必须携带"定位对象所需最小输入"（如 `goalId`、`keyResultId` 等）
 - 写操作必须显式二次确认（CLI：`--confirm yes`）
 - 审计入口必须能定位到 `groupId/taskId` 或可搜索定位的名称
 
@@ -60,7 +60,7 @@ dependencies:
 
 ## 宪章
 
-1. 写入更新必须强制联动审计，防止“改了但不合规/不承接”
+1. 写入更新必须强制联动审计，防止"改了但不合规/不承接"
 2. 未接入接口必须明确提示并给出人工操作建议，禁止编造
 3. 不在输出中泄露 `appKey`、`access-token`
 
@@ -73,8 +73,8 @@ dependencies:
 
 ## 不能做什么（当前阶段，避免编造能力）
 
-- 对齐/承接关系“修改设置”如无明确 Open API 支持，禁止伪造接口；只能给出审计结论与人工操作建议。
-- 目标/成果/举措的“编辑/删除”如无明确 Open API 支持，禁止伪造接口；只能给出变更方案与人工操作建议。
+- 对齐/承接关系"修改设置"如无明确 Open API 支持，禁止伪造接口；只能给出审计结论与人工操作建议。
+- 目标/成果/举措的"编辑/删除"如无明确 Open API 支持，禁止伪造接口；只能给出变更方案与人工操作建议。
 
 ## 授权依赖（强制）
 
