@@ -1,3 +1,5 @@
+2026-04-07 19:49 参考 `xgjk/xg-skills` 的 README 结构，完善本仓库 `README.md`：补充核心约定、Skills 索引、结构说明、规范摘要与变更约束。
+
 2026-04-07 18:42 完善 `cms-bp-manager-read`：为任务汇报分页查询新增时间范围过滤参数（businessTime/relationTime），并新增按分组+月份查询月度汇报（2.23 getMonthlyReportByMonth）的只读入口，同时同步更新相关文档与路由表。
 
 2026-04-07 17:35 在 `cms-bp-monthly-report/SKILL.md` 标题下补充 `当前版本` 与 `接口版本` 字段，便于按协议快速定位版本信息。
