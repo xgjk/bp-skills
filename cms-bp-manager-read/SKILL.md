@@ -2,7 +2,7 @@
 name: cms-bp-manager-read
 description: BP 日常维护（只读）Skill：查看周期/分组/任务树/详情/Markdown/汇报与搜索，禁止任何写入更新。
 skillcode: cms-bp-manager-read
-github: https://github.com/xgjk/xg-skills/tree/main/cms-bp-manager-read
+github: https://github.com/xgjk/bp-skills/tree/main/cms-bp-manager-read
 dependencies:
   - cms-auth-skills
 ---

@@ -2,7 +2,7 @@
 name: cms-bp-manager-write
 description: BP 日常维护（写入更新）Skill：支持目标/成果/举措增删改与对齐承接维护（以 API 支持为准），并强制联动 BP 审计；同时保留“仅审计”独立入口。
 skillcode: cms-bp-manager-write
-github: https://github.com/xgjk/xg-skills/tree/main/cms-bp-manager-write
+github: https://github.com/xgjk/bp-skills/tree/main/cms-bp-manager-write
 dependencies:
   - cms-auth-skills
 ---

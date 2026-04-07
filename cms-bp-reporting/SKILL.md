@@ -2,7 +2,7 @@
 name: cms-bp-reporting
 description: BP 报告相关 Skill：当前阶段先生成月报/季报/半年报/年报的“填写规范”（含审查输出），后续再接入“成稿报告生成”。
 skillcode: cms-bp-reporting
-github: https://github.com/xgjk/xg-skills/tree/main/cms-bp-reporting
+github: https://github.com/xgjk/bp-skills/tree/main/cms-bp-reporting
 dependencies:
   - cms-auth-skills
 ---
