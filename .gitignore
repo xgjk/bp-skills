@@ -1,0 +1,11 @@
+
+bp-audit
+bp-manager
+bp-prototype
+bp-reporting-templates
+
+# Python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
