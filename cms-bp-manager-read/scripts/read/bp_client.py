@@ -55,11 +55,55 @@ class BPClient:
         return self._request("GET", "/bp/group/markdown", params={"groupId": group_id})
 
     def ListTaskReports(self, task_id: str, page_index: int = 1, page_size: int = 10) -> Dict[str, Any]:
+        """
+        2.8 分页查询所有汇报（listTaskReports）
+
+        新增可选时间过滤参数（2026-04-07 更新）：
+        - businessTimeStart/End
+        - relationTimeStart/End
+        """
         return self._request(
             "POST",
             "/bp/task/relation/pageAllReports",
             data={"taskId": task_id, "pageIndex": page_index, "pageSize": page_size, "sortBy": "relation_time", "sortOrder": "desc"},
         )
+
+    def ListTaskReportsWithTimeRange(
+        self,
+        task_id: str,
+        page_index: int = 1,
+        page_size: int = 10,
+        business_time_start: Optional[str] = None,
+        business_time_end: Optional[str] = None,
+        relation_time_start: Optional[str] = None,
+        relation_time_end: Optional[str] = None,
+        sort_by: str = "relation_time",
+        sort_order: str = "desc",
+    ) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
+            "taskId": task_id,
+            "pageIndex": page_index,
+            "pageSize": page_size,
+            "sortBy": sort_by,
+            "sortOrder": sort_order,
+        }
+        if business_time_start:
+            data["businessTimeStart"] = business_time_start
+        if business_time_end:
+            data["businessTimeEnd"] = business_time_end
+        if relation_time_start:
+            data["relationTimeStart"] = relation_time_start
+        if relation_time_end:
+            data["relationTimeEnd"] = relation_time_end
+
+        return self._request("POST", "/bp/task/relation/pageAllReports", data=data)
+
+    def GetMonthlyReportByMonth(self, group_id: str, report_month: str) -> Dict[str, Any]:
+        """
+        2.23 根据分组和月份获取月度汇报（getMonthlyReportByMonth）
+        GET /bp/monthly/report/getByMonth?groupId=...&reportMonth=YYYY-MM
+        """
+        return self._request("GET", "/bp/monthly/report/getByMonth", params={"groupId": group_id, "reportMonth": report_month})
 
     def GetPersonalGroupIds(self, employee_ids: List[str]) -> Dict[str, Any]:
         return self._request("POST", "/bp/group/getPersonalGroupIds", data=employee_ids)

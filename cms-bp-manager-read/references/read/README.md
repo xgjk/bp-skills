@@ -10,6 +10,8 @@
 - 搜索分组：`periodId` + `name`
 - 搜索任务：`groupId` + `name`
 - 查看汇报：`taskId`
+- 查看汇报（时间过滤，可选）：`businessTimeStart/businessTimeEnd/relationTimeStart/relationTimeEnd`（格式 `yyyy-MM-dd HH:mm:ss`）
+- 查询月度汇报：`groupId` + `reportMonth`（格式 `YYYY-MM`）
 
 ### 输出
 

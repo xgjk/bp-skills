@@ -29,7 +29,8 @@ dependencies:
 - 查看我的 BP（Markdown）
 - 查看指定分组 BP（Markdown）
 - 按名称搜索分组/任务
-- 查看任务关联汇报列表
+- 查看任务关联汇报列表（支持按业务时间/关联时间过滤）
+- 查询月度汇报（按分组+月份）
 - 列出周期列表（供选择）
 
 ## 不能做什么
@@ -49,6 +50,7 @@ dependencies:
 - 搜索分组：必须提供 `periodId` + `name`
 - 搜索任务：必须提供 `groupId` + `name`
 - 查看汇报：必须提供 `taskId`
+- 查询月度汇报：必须提供 `groupId` + `reportMonth`（`YYYY-MM`）
 
 ## 建议工作流（简版）
 
@@ -81,7 +83,8 @@ dependencies:
 |---|---|---|---|---|
 | 查看我的 BP / 查看分组 BP | `read` | 获取分组 Markdown 并输出 | `./references/read/README.md` | `./scripts/read/read_cli.py` |
 | 搜索分组/任务 | `read` | 按名称模糊搜索并输出结果 | `./references/read/README.md` | `./scripts/read/read_cli.py` |
-| 查看任务汇报历史 | `read` | 查询任务关联汇报分页列表 | `./references/read/README.md` | `./scripts/read/read_cli.py` |
+| 查看任务汇报历史（支持时间过滤） | `read` | 查询任务关联汇报分页列表并支持时间范围过滤 | `./references/read/README.md` | `./scripts/read/read_cli.py` |
+| 查询月度汇报（按分组+月份） | `read` | 查询指定月份的月度汇报内容 | `./references/read/README.md` | `./scripts/read/read_cli.py` |
 
 ## 能力树
 
