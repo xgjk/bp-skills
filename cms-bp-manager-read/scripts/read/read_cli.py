@@ -2,9 +2,26 @@
 import argparse
 import json
 import os
+import sys
 from typing import Any, Dict, Optional
 
 from bp_client import BPClient, GetCurrentPeriod
+
+
+def _configure_io_encoding() -> None:
+    """
+    兼容 LANG=en_US 等非 UTF-8 终端环境：
+    - argparse/help 输出包含中文时避免 UnicodeEncodeError
+    - 业务输出统一以 UTF-8 写出（无法编码的字符以替换符输出，避免直接崩溃）
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 def _print(obj: Dict[str, Any]) -> None:
@@ -28,7 +45,14 @@ def CmdViewMyBp(client: BPClient, employee_id: Optional[str]) -> Dict[str, Any]:
     if group_ids.get("resultCode") != 1:
         return {"success": False, "error": group_ids.get("resultMsg") or "获取个人分组失败"}
 
-    group_id = (group_ids.get("data") or {}).get(emp_id)
+    data = group_ids.get("data") or {}
+    group_id = data.get(emp_id)
+    if not group_id:
+        # 兼容后端把 Map<Long, Long> 的 key 解析成数字的情况
+        try:
+            group_id = data.get(int(emp_id))
+        except Exception:
+            group_id = None
     if not group_id:
         return {"success": False, "error": "未找到该员工的个人分组"}
 
@@ -92,6 +116,7 @@ def CmdGetMonthlyReport(client: BPClient, group_id: str, report_month: str) -> D
 
 
 def main() -> None:
+    _configure_io_encoding()
     parser = argparse.ArgumentParser(description="bp-manager-read（只读）命令行入口")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -121,6 +146,9 @@ def main() -> None:
     p_monthly = sub.add_parser("monthly-report", help="按分组和月份查询月度汇报")
     p_monthly.add_argument("--group-id", required=True, help="分组ID（个人分组）")
     p_monthly.add_argument("--report-month", required=True, help="汇报月份（YYYY-MM）")
+
+    p_periods = sub.add_parser("list-periods", help="列出周期列表（可选按名称模糊搜索）")
+    p_periods.add_argument("--name", help="周期名称关键词（可选，支持模糊搜索）")
 
     args = parser.parse_args()
 
@@ -153,6 +181,13 @@ def main() -> None:
         return
     if args.command == "monthly-report":
         _print(CmdGetMonthlyReport(client, args.group_id, args.report_month))
+        return
+    if args.command == "list-periods":
+        res = client.ListPeriods(args.name)
+        if res.get("resultCode") != 1:
+            _print({"success": False, "error": res.get("resultMsg") or "查询周期列表失败"})
+            raise SystemExit(2)
+        _print({"success": True, "periods": res.get("data") or []})
         return
 
     _print({"success": False, "error": f"未知命令：{args.command}"})

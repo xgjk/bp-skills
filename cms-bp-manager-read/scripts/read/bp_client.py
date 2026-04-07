@@ -9,13 +9,29 @@ BP Open API 客户端（只读）
 
 import json
 import os
+import sys
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
 
+def _configure_io_encoding() -> None:
+    """
+    兼容 LANG=en_US 等非 UTF-8 终端环境，避免中文输出/异常信息导致编码崩溃。
+    """
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 class BPClient:
     def __init__(self, app_key: Optional[str] = None, base_url: Optional[str] = None):
+        _configure_io_encoding()
         self.AppKey = app_key or os.getenv("BP_APP_KEY")
         self.BaseUrl = base_url or "https://sg-al-cwork-web.mediportal.com.cn/open-api"
         if not self.AppKey:
@@ -25,7 +41,8 @@ class BPClient:
         url = f"{self.BaseUrl}{path}"
         headers = {"appKey": self.AppKey, "Content-Type": "application/json"}
         if params:
-            url = f"{url}?{urllib.parse.urlencode(params)}"
+            # 显式指定 UTF-8，避免在非 UTF-8 locale 下中文被错误编码
+            url = f"{url}?{urllib.parse.urlencode(params, encoding='utf-8', errors='strict')}"
 
         try:
             if method == "GET":
@@ -106,7 +123,18 @@ class BPClient:
         return self._request("GET", "/bp/monthly/report/getByMonth", params={"groupId": group_id, "reportMonth": report_month})
 
     def GetPersonalGroupIds(self, employee_ids: List[str]) -> Dict[str, Any]:
-        return self._request("POST", "/bp/group/getPersonalGroupIds", data=employee_ids)
+        # 接口契约为 List<Long>。这里尽量把纯数字字符串转为 int，兼容后端严格校验类型的场景。
+        payload: List[Any] = []
+        for emp_id in employee_ids:
+            s = str(emp_id).strip()
+            if s.isdigit():
+                try:
+                    payload.append(int(s))
+                    continue
+                except Exception:
+                    pass
+            payload.append(s)
+        return self._request("POST", "/bp/group/getPersonalGroupIds", data=payload)
 
 
 def GetCurrentPeriod(client: BPClient) -> Optional[Dict[str, Any]]:

@@ -60,6 +60,18 @@ dependencies:
 4. 补齐必要输入
 5. 执行 `scripts/read/read_cli.py`
 
+## CLI 命令清单（只读）
+
+脚本：`./scripts/read/read_cli.py`
+
+- `view-my`：查看我的 BP（Markdown）
+- `view-group`：查看指定分组 BP（Markdown）
+- `search-groups`：按名称搜索分组
+- `search-tasks`：按名称搜索任务
+- `reports`：查看任务关联汇报列表（支持时间过滤）
+- `monthly-report`：按分组和月份查询月度汇报
+- `list-periods`：列出周期列表（可选按名称模糊搜索）
+
 ## 脚本使用规则
 
 - 解释器统一使用 `python3`
