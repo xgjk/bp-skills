@@ -13,6 +13,9 @@ dependencies:
 
 # BP 个人月度汇报
 
+**当前版本**: 0.1.0  
+**接口版本**: v1（BP Open API，`/open-api/bp/*`）
+
 为 BP 系统中的个人节点生成月度汇报。核心逻辑是**先拆证据、再做判断、最后组装报告**，而不是一步生成整篇。
 
 数据获取依赖 `bp-data-viewer` Skill，遵循其缓存优先策略（详见 [bp-data-viewer 缓存指南](../bp-data-viewer/references/cache-guide.md)）。
