@@ -1,3 +1,9 @@
+2026-04-08 11:57
+
+已删除 `cms-bp-manager-read/` 目录；历史只读能力以 `cms-bp-manager` 为准。
+
+---
+
 2026-04-08 11:15
 
 基于原版 bp-manager（路径：`BP-guanfang/agent-factory/05_products/bp-manager/`）完整重建 `cms-bp-manager` 后，需注意：

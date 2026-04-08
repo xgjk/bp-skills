@@ -1,3 +1,5 @@
+2026-04-08 11:57 从仓库移除已废弃的 `cms-bp-manager-read/` 目录（只读能力已由 `cms-bp-manager` 承接），并同步更新 README 索引。
+
 2026-04-08 11:15 基于原版 bp-manager（BP-guanfang/agent-factory/05_products/bp-manager/）完整重建 `cms-bp-manager`：迁移全部 references（api-endpoints/kangzhe-rules/maintenance/api-request）、design/design.md、setup.md、README.md；重建 scripts/bp_client.py（只读+审计，合并 UTF-8/时间过滤/月度汇报增强）与 scripts/commands.py（读+审计命令）；同步丰富 `cms-bp-manager-write` 的场景描述并升级到 v2.0.0。
 
 2026-04-08 10:54 重组 BP manager 能力：新增 `cms-bp-manager`（读+审计统一入口）；将 `cms-bp-manager-write` 收敛为纯写入并迁移审计入口；将 `cms-bp-manager-read` 标记为废弃并指引迁移。

@@ -5,7 +5,7 @@
 ## 核心约定
 
 1. **每个 Skill = 一个目录**  
-   仓库根下的一级目录名即为 `skill-name`，例如：`cms-bp-manager-read/`、`cms-bp-manager-write/`。
+   仓库根下的一级目录名即为 `skill-name`，例如：`cms-bp-manager/`、`cms-bp-manager-write/`。
 2. **Skill 包内部结构固定**  
    每个 Skill 文件夹内部目录与文件结构遵循本仓库的创建与检查规范（见下文“协议规范”）。
 3. **业务逻辑与界面代码分离**  
@@ -17,7 +17,6 @@
 
 - `cms-bp-manager/`：**BP 管理（读 + 审计，主入口）** — 基于原版 bp-manager 重建，包含完整场景/API/数据模型/康哲规则
 - `cms-bp-manager-write/`：BP 写入（纯写入，受控确认）— 新增KR/举措/延期提醒
-- `cms-bp-manager-read/`：~~BP 只读~~（已废弃，能力合并入 `cms-bp-manager`）
 - `cms-bp-reporting/`：BP 报告相关（填写规范、模板管理）
 - `cms-bp-monthly-report/`：个人月度汇报生成（流程化生成与工具脚本）
 
