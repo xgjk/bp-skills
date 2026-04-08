@@ -1,3 +1,5 @@
+2026-04-08 14:14 移除 `cms-bp-manager/SKILL.md` 中对 `BP_APP_KEY` 的直接依赖声明，统一通过 `cms-auth-skills` 注入鉴权信息。
+
 2026-04-08 11:57 从仓库移除已废弃的 `cms-bp-manager-read/` 目录（只读能力已由 `cms-bp-manager` 承接），并同步更新 README 索引。
 
 2026-04-08 11:15 基于原版 bp-manager（BP-guanfang/agent-factory/05_products/bp-manager/）完整重建 `cms-bp-manager`：迁移全部 references（api-endpoints/kangzhe-rules/maintenance/api-request）、design/design.md、setup.md、README.md；重建 scripts/bp_client.py（只读+审计，合并 UTF-8/时间过滤/月度汇报增强）与 scripts/commands.py（读+审计命令）；同步丰富 `cms-bp-manager-write` 的场景描述并升级到 v2.0.0。
