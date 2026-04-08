@@ -10,6 +10,10 @@ import json
 import argparse
 import os
 import sys
+import subprocess
+import urllib.error
+import urllib.request
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from bp_client import BPClient, GetCurrentPeriod, FindMyGroup
 
@@ -27,6 +31,161 @@ def _configure_io_encoding() -> None:
 
 def _print(obj: Dict[str, Any]) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+def _is_truthy(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _parse_semver(version: str) -> Optional[List[int]]:
+    s = (version or "").strip()
+    if not s:
+        return None
+    if s.startswith("v") or s.startswith("V"):
+        s = s[1:]
+    parts = s.split(".")
+    nums: List[int] = []
+    for p in parts:
+        p = p.strip()
+        if not p.isdigit():
+            return None
+        nums.append(int(p))
+    if not nums:
+        return None
+    while len(nums) < 3:
+        nums.append(0)
+    return nums[:3]
+
+
+def _compare_semver(a: str, b: str) -> Optional[int]:
+    """
+    比较 a 与 b（语义版本号，支持 v 前缀）。
+    返回：1 表示 a>b；0 表示相等；-1 表示 a<b；None 表示无法比较。
+    """
+    aa = _parse_semver(a)
+    bb = _parse_semver(b)
+    if aa is None or bb is None:
+        return None
+    if aa == bb:
+        return 0
+    return 1 if aa > bb else -1
+
+
+def _read_local_skill_version() -> Optional[str]:
+    """
+    从本技能的 SKILL.md 头部读取 metadata.version（不引入第三方 YAML 依赖）。
+    """
+    try:
+        skill_md = Path(__file__).resolve().parents[1] / "SKILL.md"
+        text = skill_md.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+    in_front_matter = False
+    for line in text.splitlines():
+        if line.strip() == "---" and not in_front_matter:
+            in_front_matter = True
+            continue
+        if line.strip() == "---" and in_front_matter:
+            break
+        if not in_front_matter:
+            continue
+        # 只匹配顶层/二级缩进的 version 字段（metadata.version）
+        # 例如：  version: v2.0.1
+        if line.lstrip().startswith("version:"):
+            _, v = line.split(":", 1)
+            return v.strip().strip("\"'") or None
+    return None
+
+
+def _fetch_latest_release_tag(timeout_seconds: float = 3.0) -> Optional[str]:
+    """
+    从 GitHub Release 拉取最新 tag（无鉴权；失败则返回 None，不影响主业务）。
+    """
+    url = "https://api.github.com/repos/xgjk/bp-skills/releases/latest"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "cms-bp-manager-update-check",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            tag = (data or {}).get("tag_name")
+            if isinstance(tag, str) and tag.strip():
+                return tag.strip()
+            return None
+    except Exception:
+        return None
+
+
+def _maybe_check_and_update(allow_auto_update: bool, allow_prompt: bool) -> Optional[Dict[str, Any]]:
+    """
+    - 默认只做检查，不阻断主命令执行
+    - 检测到更新：返回 updateInfo；必要时自动更新或提示更新
+    """
+    local_version = _read_local_skill_version()
+    latest_tag = _fetch_latest_release_tag()
+    if not local_version or not latest_tag:
+        return None
+
+    cmp = _compare_semver(latest_tag, local_version)
+    if cmp is None or cmp <= 0:
+        return None
+
+    install_cmd = "npx clawhub@latest install cms-bp-manager --force"
+    info: Dict[str, Any] = {
+        "hasUpdate": True,
+        "currentVersion": local_version,
+        "latestVersion": latest_tag,
+        "installCommand": install_cmd,
+    }
+
+    if allow_auto_update:
+        try:
+            proc = subprocess.run(install_cmd, shell=True, check=False, capture_output=True, text=True)
+            info["autoUpdateAttempted"] = True
+            info["autoUpdateExitCode"] = proc.returncode
+            if proc.returncode == 0:
+                info["autoUpdateSuccess"] = True
+            else:
+                info["autoUpdateSuccess"] = False
+                info["autoUpdateError"] = (proc.stderr or proc.stdout or "").strip()[:2000]
+        except Exception as exc:
+            info["autoUpdateAttempted"] = True
+            info["autoUpdateSuccess"] = False
+            info["autoUpdateError"] = str(exc)
+        return info
+
+    if allow_prompt and sys.stdin.isatty():
+        try:
+            sys.stderr.write(
+                f\"检测到 cms-bp-manager 有新版本：{local_version} → {latest_tag}\\n是否现在更新？(yes/no)：\"
+            )
+            sys.stderr.flush()
+            ans = (sys.stdin.readline() or \"\").strip().lower()
+            if ans in {\"yes\", \"y\"}:
+                proc = subprocess.run(install_cmd, shell=True, check=False, capture_output=True, text=True)
+                info[\"prompted\"] = True
+                info[\"userAccepted\"] = True
+                info[\"updateExitCode\"] = proc.returncode
+                if proc.returncode != 0:
+                    info[\"updateError\"] = (proc.stderr or proc.stdout or \"\").strip()[:2000]
+            else:
+                info[\"prompted\"] = True
+                info[\"userAccepted\"] = False
+        except Exception as exc:
+            info[\"prompted\"] = True
+            info[\"promptError\"] = str(exc)
+        return info
+
+    info["prompted"] = False
+    info["message"] = "检测到新版本，可手动执行 installCommand 更新。"
+    return info
 
 
 def _ensure_employee_id(employee_id: Optional[str]) -> Optional[str]:
@@ -189,6 +348,9 @@ def CmdListPeriods(client: BPClient, name: Optional[str] = None) -> Dict[str, An
 def main() -> None:
     _configure_io_encoding()
     parser = argparse.ArgumentParser(description="BP Manager 命令行工具（只读 + 审计）")
+    parser.add_argument("--skip-update-check", action="store_true", help="跳过版本更新检查")
+    parser.add_argument("--auto-update", action="store_true", help="发现新版本时自动执行更新安装命令")
+    parser.add_argument("--prompt-update", action="store_true", help="发现新版本时提示是否更新（仅在 TTY 下生效）")
     sub = parser.add_subparsers(dest="command", required=True, help="可用命令")
 
     p_view_my = sub.add_parser("view-my", help="查看我的 BP")
@@ -229,32 +391,70 @@ def main() -> None:
     p_periods.add_argument("--name", help="周期名称关键词（可选）")
 
     args = parser.parse_args()
+    # 默认策略：检查更新但不打断业务；仅输出提示信息。
+    # 可通过参数或环境变量切换为自动更新/提示更新。
+    update_info: Optional[Dict[str, Any]] = None
+    if not args.skip_update_check and not _is_truthy(os.getenv("BP_MANAGER_SKIP_UPDATE_CHECK")):
+        allow_auto = args.auto_update or _is_truthy(os.getenv("BP_MANAGER_AUTO_UPDATE"))
+        allow_prompt = args.prompt_update or _is_truthy(os.getenv("BP_MANAGER_PROMPT_UPDATE"))
+        update_info = _maybe_check_and_update(allow_auto_update=allow_auto, allow_prompt=allow_prompt)
+
     client = BPClient()
 
     if args.command == "view-my":
-        _print(CmdViewMyBp(client, args.employee_id))
+        res = CmdViewMyBp(client, args.employee_id)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "view-group":
-        _print(CmdViewGroupBp(client, args.group_id))
+        res = CmdViewGroupBp(client, args.group_id)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "view-subordinate":
-        _print(CmdViewSubordinateBp(client, args.name, args.period_id))
+        res = CmdViewSubordinateBp(client, args.name, args.period_id)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "reports":
-        _print(CmdViewReports(
+        res = CmdViewReports(
             client, args.task_id, args.page_index, args.page_size,
             args.business_time_start, args.business_time_end,
             args.relation_time_start, args.relation_time_end,
-        ))
+        )
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "monthly-report":
-        _print(CmdGetMonthlyReport(client, args.group_id, args.report_month))
+        res = CmdGetMonthlyReport(client, args.group_id, args.report_month)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "search-tasks":
-        _print(CmdSearchTasks(client, args.group_id, args.keyword))
+        res = CmdSearchTasks(client, args.group_id, args.keyword)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "search-groups":
-        _print(CmdSearchGroups(client, args.period_id, args.keyword))
+        res = CmdSearchGroups(client, args.period_id, args.keyword)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "check-bp":
-        _print(CmdCheckBp(client, args.group_id))
+        res = CmdCheckBp(client, args.group_id)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     elif args.command == "list-periods":
-        _print(CmdListPeriods(client, args.name))
+        res = CmdListPeriods(client, args.name)
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
     else:
-        _print({"success": False, "error": f"未知命令：{args.command}"})
+        res = {"success": False, "error": f"未知命令：{args.command}"}
+        if update_info:
+            res["updateInfo"] = update_info
+        _print(res)
 
 
 if __name__ == "__main__":

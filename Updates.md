@@ -1,3 +1,5 @@
+2026-04-08 15:23 为 `cms-bp-manager` 增加“运行时更新检查/提示/自动更新”机制（默认检查，支持提示或自动执行 `npx clawhub@latest install cms-bp-manager --force`），并升级版本号到 v2.1.0。
+
 2026-04-08 14:42 升级 `cms-bp-manager` 版本号到 v2.0.1（移除 BP_APP_KEY 直接依赖后的补充版本发布）。
 
 2026-04-08 14:14 移除 `cms-bp-manager/SKILL.md` 中对 `BP_APP_KEY` 的直接依赖声明，统一通过 `cms-auth-skills` 注入鉴权信息。
