@@ -1,6 +1,6 @@
 ---
 name: cms-bp-manager-read
-description: BP 日常维护（只读）Skill：查看周期/分组/任务树/详情/Markdown/汇报与搜索，禁止任何写入更新。
+description: 【已废弃】BP 日常维护（只读）Skill：能力已迁移至 `cms-bp-manager`（读 + 审计）。本 Skill 仅保留兼容入口。
 skillcode: cms-bp-manager-read
 github: https://github.com/xgjk/bp-skills/tree/main/cms-bp-manager-read
 dependencies:
@@ -8,6 +8,14 @@ dependencies:
 ---
 
 # bp-manager-read — 索引
+
+## 废弃说明（强制）
+
+本 Skill 已废弃，请迁移至：
+
+- `cms-bp-manager/`：读 + 审计统一入口（推荐）
+
+本目录后续仅保留兼容层，不再新增能力与修复。
 
 本文件提供能力边界、路由规则与使用约束。详细说明见 `references/`，实际执行见 `scripts/`。
 

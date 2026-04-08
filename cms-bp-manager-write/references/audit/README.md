@@ -1,9 +1,13 @@
-## audit 模块说明（独立入口保留）
+## audit 模块说明（已迁移）
 
-### 适用场景
+### 适用场景（迁移说明）
 
-用于对 BP 进行审计校验（基础合规、向上对齐、向下承接、GAP 分析）。  
-该模块必须支持“仅审计不写入”的独立入口；同时也应被写入更新模块在变更前后调用，形成强联动闭环。
+本模块已迁移至 `cms-bp-manager` 的 `audit` 能力：
+
+- 文档：`cms-bp-manager/references/audit/README.md`
+- 脚本：`cms-bp-manager/scripts/audit/audit_cli.py`
+
+`cms-bp-manager-write` 作为“纯写入”技能保留工作流约束：写入前后必须执行审计，但审计入口不再放在本技能内。
 
 ### 审计输出要求
 
