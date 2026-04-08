@@ -1,3 +1,5 @@
+2026-04-08 17:06 升级 `cms-bp-manager-write` 到 v2.1.0：补齐 2.25~2.30（addGoal/alignTask/updateTask/getHistoryPage/getHistoryDetail/rollback）并在 `update-task` 落地“字段白名单 + 差异确认单 + 写后复核”；同步更新 `SKILL.md` 说明与接口清单。
+
 2026-04-08 16:40 更新 `cms-bp-monthly-report`：版本升级到 1.0.1；`save_monthly_report` 强制要求 `report_record_id`（与 `send_report` 返回 id 闭环）；`send_report` 增加抄送参数与“汇报人ID有误/401 限流”自动等待重试；采集汇报作者字段兼容 `writeEmpId/writeEmpName`。
 
 2026-04-08 15:23 为 `cms-bp-manager` 增加“运行时更新检查/提示/自动更新”机制（默认检查，支持提示或自动执行 `npx clawhub@latest install cms-bp-manager --force`），并升级版本号到 v2.1.0。
