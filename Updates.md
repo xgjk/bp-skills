@@ -1,3 +1,5 @@
+2026-04-08 14:42 升级 `cms-bp-manager` 版本号到 v2.0.1（移除 BP_APP_KEY 直接依赖后的补充版本发布）。
+
 2026-04-08 14:14 移除 `cms-bp-manager/SKILL.md` 中对 `BP_APP_KEY` 的直接依赖声明，统一通过 `cms-auth-skills` 注入鉴权信息。
 
 2026-04-08 11:57 从仓库移除已废弃的 `cms-bp-manager-read/` 目录（只读能力已由 `cms-bp-manager` 承接），并同步更新 README 索引。
