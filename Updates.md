@@ -1,3 +1,5 @@
+2026-04-08 16:40 更新 `cms-bp-monthly-report`：版本升级到 1.0.1；`save_monthly_report` 强制要求 `report_record_id`（与 `send_report` 返回 id 闭环）；`send_report` 增加抄送参数与“汇报人ID有误/401 限流”自动等待重试；采集汇报作者字段兼容 `writeEmpId/writeEmpName`。
+
 2026-04-08 15:23 为 `cms-bp-manager` 增加“运行时更新检查/提示/自动更新”机制（默认检查，支持提示或自动执行 `npx clawhub@latest install cms-bp-manager --force`），并升级版本号到 v2.1.0。
 
 2026-04-08 14:42 升级 `cms-bp-manager` 版本号到 v2.0.1（移除 BP_APP_KEY 直接依赖后的补充版本发布）。

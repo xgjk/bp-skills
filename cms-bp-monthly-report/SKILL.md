@@ -13,7 +13,7 @@ dependencies:
 
 # BP 个人月度汇报
 
-**当前版本**: 1.0.0  
+**当前版本**: 1.0.1  
 **接口版本**: v1（BP Open API，`/open-api/bp/*`）
 
 为 BP 系统中的个人节点生成月度汇报。核心逻辑是**先拆证据、再做判断、最后组装报告**，而不是一步生成整篇。
@@ -319,13 +319,15 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py send_repo
 python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py save_monthly_report \
   --group_id "{groupId}" \
   --month "{YYYY-MM}" \
-  --content_file "/tmp/monthly_report_{groupId}.md"
+  --content_file "/tmp/monthly_report_{groupId}.md" \
+  --report_record_id "{send_report返回的id}"
 ```
 
 **保存参数说明**：
 - `--group_id`：员工个人分组 ID
 - `--month`：汇报月份，格式 `YYYY-MM`
 - `--content_file`：月报内容文件路径（同发送时使用的文件）
+- `--report_record_id`：**必填**，`send_report` 返回的 `data.id` 值
 - 使用 **数据查询 key**（`BP_OPEN_API_APP_KEY`）调用，机器人 key 无权限
 
 ## 工具脚本
@@ -347,7 +349,7 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> 
 | `collect_monthly_data` | 一次性采集 BP 结构 + 当月汇报数据，输出聚合 JSON | `--group_id`、`--month` | `--output` |
 | `get_report_content` | 获取单条汇报正文内容 | `--report_id` | 无 |
 | `send_report` | 发送月度汇报（工作协同） | `--receiver_emp_id`、`--title`、`--content_file` | `--sender_id` |
-| `save_monthly_report` | 保存月报到 BP 系统（2.22 saveMonthlyReport） | `--group_id`、`--month`、`--content_file` | 无 |
+| `save_monthly_report` | 保存月报到 BP 系统（2.22 saveMonthlyReport） | `--group_id`、`--month`、`--content_file`、`--report_record_id` | 无 |
 
 ## 批量生成
 
@@ -362,7 +364,11 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> 
 ## 重要约束
 
 - 所有 ID 参数保持字符串原样传递，**严禁 parseInt 或 Number 转换**
+- **严禁测试发送**：`send_report` 接口会将内容真实推送给员工，**绝对不允许**用测试数据、占位内容或 debug 用途调用此接口。只有在月报内容已完整生成、用户已确认的情况下，才能调用 `send_report`。任何"试一下接口通不通"的行为都是禁止的
 - 月报内容**必须先展示给用户确认**，确认后才能发送
+- **发送报错重试机制**：以下两种错误脚本会自动等待 60 秒后重试一次（API 按分钟限流）：
+  - **"汇报人ID有误"**：先检查是否使用了内置机器人 key（`SEND_REPORT_APP_KEY`）而非用户的数据查询 key（`BP_OPEN_API_APP_KEY`），确认 key 正确后等待 60 秒再重试
+  - **resultCode=401 且参数正确**：视为接口限流，等待 60 秒后重试
 - **发送后必须保存**：调用 `send_report` 发送工作协同后，必须接着调用 `save_monthly_report` 将月报持久化到 BP 系统
 - **禁止一步生成整篇报告**，必须走 3a → 3b → 3c → 3d 四步
 - 第 2 章小节数量必须与实际 BP 目标数量一致，**不可写死**
@@ -395,4 +401,5 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> 
 
 - BP 数据获取失败时，提示用户检查 `BP_OPEN_API_APP_KEY` 配置
 - 汇报发送失败时，保留已生成的月报内容，提示用户可手动重试发送
+- **"汇报人ID有误"或 401 限流**：脚本自动检查 key 并等待 60 秒后重试一次；若重试仍失败，保留月报内容并提示用户排查该员工在工作协同系统中的账号状态
 - 某个目标下无汇报数据时，在月报中标注"本月无汇报"并按灯色规则判断，不中断整体流程

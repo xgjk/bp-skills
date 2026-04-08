@@ -20,6 +20,7 @@ import calendar
 import json
 import os
 import sys
+import time
 from datetime import datetime
 
 import requests
@@ -34,6 +35,7 @@ SEND_REPORT_APP_KEY = "1xmsXv2yv11OVqkd3zb5yG441sO5AB04"
 TIMEOUT = 30
 DEFAULT_SENDER_ID = "400002"
 REPORT_CONTENT_MAX_CHARS = 2000
+SEND_RETRY_DELAY_SECONDS = 60
 
 
 def _log(msg):
@@ -214,8 +216,8 @@ def collect_monthly_data(args):
                 "content": _truncate(content_html),
                 "contentType": rd.get("contentType", ""),
                 "createTime": rd.get("createTime"),
-                "authorEmpId": rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
-                "authorName": rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
+                "authorEmpId": rd.get("writeEmpId") or rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
+                "authorName": rd.get("writeEmpName") or rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
             }
         else:
             errors.append({"step": "report_content", "id": rid, "error": result.get("error")})
@@ -297,14 +299,34 @@ def get_report_content(args):
     return _request("GET", "/work-report/report/info", params={"reportId": args.report_id})
 
 
+def _do_send_report(url, headers, body):
+    resp = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("resultCode") != 1:
+        return {"error": data.get("resultMsg", "Unknown API error"), "resultCode": data.get("resultCode")}
+    return {"success": True, "data": data.get("data")}
+
+
+def _is_rate_limited(result):
+    return result.get("resultCode") == 401
+
+
+def _should_retry_send(result):
+    error_msg = str(result.get("error", ""))
+    if "汇报人ID有误" in error_msg:
+        return "emp_id_error"
+    if _is_rate_limited(result):
+        return "rate_limited"
+    return None
+
+
 def send_report(args):
     """POST /work-report/report/record/submit — send monthly report.
 
-    Mirrors MonthlyReportGenerateService.sendMonthlyReport() logic:
-    - contentType: markdown
-    - reportRecordType: 4 (AI report)
-    - Level 1: read (employee self)
-    - sender: BP system user (default 400002)
+    Uses the built-in SEND_REPORT_APP_KEY (robot key), NOT the user's
+    BP_OPEN_API_APP_KEY. Retryable errors (rate limit 401, "汇报人ID有误"):
+    verify key, wait 60s, retry once.
     """
     if not args.receiver_emp_id:
         return {"error": "receiver_emp_id is required for send_report"}
@@ -339,22 +361,48 @@ def send_report(args):
         ],
     }
 
+    copy_ids = getattr(args, "copy_emp_ids", None)
+    if copy_ids:
+        body["copyEmpIdList"] = [cid.strip() for cid in copy_ids.split(",") if cid.strip()]
+
     url = f"{BASE_URL}/work-report/report/record/submit"
     headers = {"appKey": SEND_REPORT_APP_KEY, "Content-Type": "application/json"}
 
     try:
-        resp = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("resultCode") != 1:
-            return {"error": data.get("resultMsg", "Unknown API error"), "resultCode": data.get("resultCode")}
-        result = {"success": True, "data": data.get("data")}
+        result = _do_send_report(url, headers, body)
     except requests.RequestException as exc:
         return {"error": f"Network error: {exc}"}
 
+    retry_reason = _should_retry_send(result) if result.get("error") else None
+    if retry_reason:
+        if retry_reason == "emp_id_error":
+            _log(
+                f"Got '汇报人ID有误' for empId={args.receiver_emp_id}. "
+                f"Verifying key is SEND_REPORT_APP_KEY (not BP_OPEN_API_APP_KEY)..."
+            )
+        elif retry_reason == "rate_limited":
+            _log(
+                f"Got resultCode=401 (rate limited) for empId={args.receiver_emp_id}. "
+                f"Params look correct, treating as rate limit..."
+            )
+
+        if headers["appKey"] != SEND_REPORT_APP_KEY:
+            _log("ERROR: wrong key detected, switching to SEND_REPORT_APP_KEY")
+            headers["appKey"] = SEND_REPORT_APP_KEY
+
+        _log(f"Waiting {SEND_RETRY_DELAY_SECONDS}s before retry...")
+        time.sleep(SEND_RETRY_DELAY_SECONDS)
+        try:
+            result = _do_send_report(url, headers, body)
+            if result.get("success"):
+                _log("Retry succeeded.")
+            else:
+                _log(f"Retry failed: {result.get('error')}")
+        except requests.RequestException as exc:
+            return {"error": f"Network error on retry: {exc}"}
+
     if result.get("success"):
-        print(f"[info] Report sent successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}",
-              file=sys.stderr)
+        _log(f"Report sent successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}")
 
     return result
 
@@ -364,6 +412,7 @@ def save_monthly_report(args):
 
     Uses the data-query APP_KEY (not the send-report robot key),
     because the BP monthly report save API requires user-level permission.
+    reportRecordId is required — pass the id returned by send_report.
     """
     if not args.group_id:
         return {"error": "group_id is required for save_monthly_report"}
@@ -371,6 +420,8 @@ def save_monthly_report(args):
         return {"error": "month is required for save_monthly_report"}
     if not args.content_file:
         return {"error": "content_file is required for save_monthly_report"}
+    if not getattr(args, "report_record_id", None):
+        return {"error": "report_record_id is required for save_monthly_report (pass the id returned by send_report)"}
 
     content_path = args.content_file
     if not os.path.isfile(content_path):
@@ -389,9 +440,8 @@ def save_monthly_report(args):
         "groupId": int(args.group_id),
         "reportContent": content,
         "reportMonth": args.month,
+        "reportRecordId": int(args.report_record_id),
     }
-    if getattr(args, "report_record_id", None):
-        body["reportRecordId"] = int(args.report_record_id)
 
     url = f"{BASE_URL}/bp/monthly/report/save"
     headers = {"appKey": APP_KEY, "Content-Type": "application/json"}
@@ -439,6 +489,7 @@ def main():
     parser.add_argument("--content_file", help="Path to markdown content file (for send_report)")
     parser.add_argument("--sender_id", help=f"Sender system user ID (default: {DEFAULT_SENDER_ID})")
     parser.add_argument("--report_record_id", help="Report record ID from send_report (for save_monthly_report)")
+    parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for send_report)")
 
     args = parser.parse_args()
 
