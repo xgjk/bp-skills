@@ -16,7 +16,7 @@
 以下为当前已收录的 Skills（以仓库实际目录为准）：
 
 - `cms-bp-manager/`：**BP 管理（读 + 审计，主入口）** — 基于原版 bp-manager 重建，包含完整场景/API/数据模型/康哲规则
-- `cms-bp-manager-write/`：BP 写入（纯写入，受控确认）— 新增KR/举措/延期提醒
+- `cms-bp-manager-write/`：BP 写入（纯写入，受控确认）— 新增 KR/举措/延期提醒、承接/对齐、通用修改、版本历史与回退
 - `cms-bp-reporting/`：BP 报告相关（填写规范、模板管理）
 - `cms-bp-monthly-report/`：个人月度汇报生成（流程化生成与工具脚本）
 

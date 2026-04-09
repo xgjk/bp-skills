@@ -1,3 +1,43 @@
+2026-04-09 16:51 发布 `v2.1.1`：仅升级 `cms-bp-manager-write` 写入 Skill 文档版本与发布信息，补齐 updateTask + 版本历史/回退链路说明。
+
+2026-04-09 16:51 完善 `cms-bp-manager-write/SKILL.md`：按最新 BP Open API 补齐“通用修改 updateTask”“版本历史/快照详情”“版本回退 rollback”三类基础操作的场景说明与强制安全约束（写前差异确认单、二次确认、写后复核、Long ID 字符串化、中文 URL 编码）。
+
+2026-04-08 21:34 新增组织月报模板：新增 `cms-bp-monthly-report/references/report-template-org-bp-self-check.md`（组织BP自查，含下级BP汇总）与 `cms-bp-monthly-report/references/report-template-org-manager-bp-evaluation.md`（组织管理人评价组织月报，要求同时参考组织月报与管理人月报）。
+
+2026-04-08 21:07 更新 `cms-bp-monthly-report/references/report-template-personal-summary.md`：在 1.1 的目标明细表新增“目标状态灯（来自报告一）”列；在第 3/4 章增加“是否需要补充完善”的提示语，提醒员工补齐遗漏信息。
+
+2026-04-08 20:56 更新 `cms-bp-monthly-report/references/manager-review-sheet.html`：内置“员工自评示例分数”预置（无可导入 JSON 时默认展示），并新增“载入示例自评”按钮；仍支持导入/清空自评分数。
+
+2026-04-08 20:50 更新 `cms-bp-monthly-report/references/manager-review-sheet.html`：支持导入员工自评（来自 `goal-score-sheet.html` 导出的 JSON），并在管理者为每个目标的四维滑块旁展示“员工自评”分数用于对照；支持一键清空自评分数。
+
+2026-04-08 20:42 新增静态页面 `cms-bp-monthly-report/references/manager-review-sheet.html`：管理者对下级的“第 5/6 章”填写页，复用 `goal-score-sheet.html` 口径（四维 1~5 分、固定权重、护栏、0~100、五档评价、目标权重汇总），并提供“管理者要求文本”输入与模板复制、LocalStorage 保存、JSON 导出/清空。
+
+2026-04-08 20:27 更新 `cms-bp-monthly-report/references/report-template-personal-summary.md`：删除第 5 章“评分元信息”小节；将第 6 章从表格填写改为管理者按固定结构输出一段文本（Top3 要求/Stop Doing/支持与节奏），并对文本内容字段提出硬性要求。
+
+2026-04-08 20:20 简化 `cms-bp-monthly-report/references/report-template-personal-summary.md` 第 5/6 章：管理者评分改为参考 `goal-score-sheet.html` 的“四维 1~5 分 + 固定权重 + 护栏 + 0~100 + 五档评价”，管理者要求收敛为 Top3 要求 + 1 条 Stop Doing + 支持与对齐节奏。
+
+2026-04-08 20:13 更新 `cms-bp-monthly-report/references/report-template-personal-summary.md`：新增第 5 章“管理者评分”和第 6 章“管理者要求”，以结构化表格字段输出管理者打分、目标级差异、下月硬性要求、Stop Doing、能力行为对齐与跟踪机制。
+
+2026-04-08 20:08 更新 `cms-bp-monthly-report/references/report-template-personal-summary.md`：将“1.1 本月总体判断”改为直接展示来自报告一（BP自查）的自评得分汇总（总分/加权分）与按目标的得分×权重明细，作为本报告该段落的依据入口。
+
+2026-04-08 20:03 更新 `cms-bp-monthly-report/references/traffic-light-rules.md`：补充黑灯规则——命中黑灯时除整改/补证据外，需同步询问用户是否需要调整 BP（目标/KR/举措/时间范围等），并在报告中记录选择与原因。
+
+2026-04-08 19:52 优化报告一模板：在 `report-template-bp-self-check.md` 的 `2.2 目标明细` 中，将每个目标标题改为“先展示目标灯色，再展示目标名称”。
+
+2026-04-08 19:45 重新生成“报告一/报告二”模板章节映射：报告一承接原模板第 2/3/4/5 章并按 BP目标主线组织（目标内串起承诺对照/结果/举措/偏差问题）；报告二承接原模板第 1/6/7/8 章，并将风险与资源需求按目标落点呈现；同步更新 `cms-bp-monthly-report/references/report-template.md` 索引说明。
+
+2026-04-08 19:49 调整 `cms-bp-monthly-report/references/goal-score-sheet.html` 的目标权重口径：权重改为百分比（0~100），要求所有目标权重合计=100% 才计算本月最终得分，并在页面底部增加合计校验提示。
+
+2026-04-08 19:41 增强 `cms-bp-monthly-report/references/goal-score-sheet.html`：为每个目标增加“目标权重”输入，并在页面底部输出按权重汇总的“本月最终得分”（加权平均 0~100）。
+
+2026-04-08 19:28 调整 `cms-bp-monthly-report/references/goal-score-sheet.html`：目标清单改为只读（不允许新增/删除/改名，支持 URL 参数 `goals=` 传入目标列表），补充四维度 1~5 分详细解释说明，并将页面改为浅色调。
+
+2026-04-08 19:12 新增静态页面 `cms-bp-monthly-report/references/goal-score-sheet.html`：支持按目标填写四维得分（目标达成度/推进质量/协同与影响力/风险与确定性），自动计算加权总分（0~100）与五档评价（优秀/良好/合格/不足/失控），并提供本地保存与 JSON 导出。
+
+2026-04-08 19:00 将 `cms-bp-monthly-report/references/report-template.md` 按会议决议拆分为“三份独立报告模板”：新增 `report-template-bp-self-check.md`（报告一 BP自查）、`report-template-personal-summary.md`（报告二 个人总结）、`report-template-personal-evaluation.md`（报告三 个人评价），并将原 `report-template.md` 调整为索引入口与共用灯色规范。
+
+2026-04-08 18:30 扩展 `cms-bp-monthly-report/references/report-template.md` 第 1 章综述段落：为“总体判断/关键进展/关注问题/下月判断”新增主观评级（优秀/良好/合格/不足）与可对照的判断标准，并将下月判断强化为可验证的客观口径（里程碑/指标/依赖与反证信号）。
+
 2026-04-08 17:06 升级 `cms-bp-manager-write` 到 v2.1.0：补齐 2.25~2.30（addGoal/alignTask/updateTask/getHistoryPage/getHistoryDetail/rollback）并在 `update-task` 落地“字段白名单 + 差异确认单 + 写后复核”；同步更新 `SKILL.md` 说明与接口清单。
 
 2026-04-08 16:40 更新 `cms-bp-monthly-report`：版本升级到 1.0.1；`save_monthly_report` 强制要求 `report_record_id`（与 `send_report` 返回 id 闭环）；`send_report` 增加抄送参数与“汇报人ID有误/401 限流”自动等待重试；采集汇报作者字段兼容 `writeEmpId/writeEmpName`。
