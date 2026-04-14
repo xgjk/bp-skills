@@ -98,7 +98,7 @@ report_month: 2026-03
 确定 `groupId` 和月份后，使用 `collect_monthly_data` 一次性采集当月全部数据：
 
 ```bash
-python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_monthly_data \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect_monthly_data \
   --group_id "{groupId}" \
   --month "2026-03" \
   --output "/tmp/monthly_data_{groupId}.json"
@@ -133,7 +133,7 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_m
 当月数据采集完成后，使用 `collect_previous_month_data` 采集上个月的汇报和评价作为参考：
 
 ```bash
-python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_previous_month_data \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect_previous_month_data \
   --group_id "{groupId}" \
   --month "2026-02" \
   --output "/tmp/prev_month_data_{groupId}.json"
@@ -350,7 +350,7 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_p
 **校验通过后直接发送**，无需等待用户确认。
 
 ```bash
-python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py send_report \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py send_report \
   --receiver_emp_id "{employeeId}" \
   --title "{员工姓名} {YYYY年M月} BP自查报告" \
   --content_file "/tmp/report_selfcheck_{groupId}.md" \
@@ -364,7 +364,7 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py send_repo
 发送成功后，保存到 BP 系统：
 
 ```bash
-python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py save_monthly_report \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_monthly_report \
   --group_id "{groupId}" \
   --month "{YYYY-MM}" \
   --content_file "/tmp/report_selfcheck_{groupId}.md" \
@@ -428,7 +428,7 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py save_mont
 工作协同侧的汇报操作脚本，从工作区根目录执行：
 
 ```bash
-python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> [options]
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action> [options]
 ```
 
 | action | 说明 | 必填参数 | 可选参数 |
