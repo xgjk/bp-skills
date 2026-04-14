@@ -1,29 +1,23 @@
 ---
-name: cms-bp-monthly-report
+name: bp-monthly-report
 description: >-
   BP个人月度汇报生成与发送工具。基于 BP 目标结构、衡量标准和当月汇报证据，
   按分步流程生成结构固定、证据可追溯的月报初稿。
   当用户需要生成、发送或预览个人BP月度汇报时使用。
-skillcode: cms-bp-monthly-report
-github: https://github.com/xgjk/bp-skills/tree/main/cms-bp-monthly-report
-dependencies:
-  - cms-auth-skills
-  - bp-data-viewer
 ---
 
 # BP 个人月度汇报
 
-**当前版本**: 1.0.1  
-**接口版本**: v1（BP Open API，`/open-api/bp/*`）
-
 为 BP 系统中的个人节点生成月度汇报。核心逻辑是**先拆证据、再做判断、最后组装报告**，而不是一步生成整篇。
 
-数据获取依赖 `bp-data-viewer` Skill，遵循其缓存优先策略（详见 [bp-data-viewer 缓存指南](../bp-data-viewer/references/cache-guide.md)）。
-
 详细参考：
-- 月报模板：[references/report-template.md](references/report-template.md)
+- 报告模板（BP自查报告）：[references/report-template-bp-self-check.md](references/report-template-bp-self-check.md)
 - 灯色判断标准：[references/traffic-light-rules.md](references/traffic-light-rules.md)
 - 证据优先级规则：[references/evidence-rules.md](references/evidence-rules.md)
+
+## 报告定位
+
+月报最终输出为**一份 BP 自查报告**，面向员工本人阅读，以"每个 BP 目标"为主线底座，对照承诺逐条检查完成情况，在一个目标内串起"承诺对照、结果、举措、偏差问题与原因"。每个目标给灯色判断；最终给一句话自我结论（优秀/良好/合格/不足）。
 
 ## 核心业务概念
 
@@ -40,28 +34,30 @@ dependencies:
 
 ### 灯色判断层级
 
-- **判断卡片（Step 3c）**：灯色判断的最小单元是**关键成果**和**关键举措**，分别生成卡片。
-- **最终报告（Step 3d）**：
-  - **第 2 章**：灯色判断到**目标级**——综合该目标下所有 KR 卡片得出一个目标级灯色。
-  - **第 3 章**：每个核心结果事项带灯。
-  - **第 4 章**：每个关键举措单独带灯。
-  - **第 5 章**：每个问题/偏差带灯。
-  - **第 6 章**：每个风险带灯。
-  - **第 1 章**：综述中"本月总体判断"和"对下月的总体判断"各带一个灯。
-- 所有灯色判断点使用统一的**三灯判断块**格式（见 report-template.md "三灯判断块标准模板"一节）。
+- **排除规则**：基于 `planDateRange`（计划时间范围）与汇报月份的**区间交叉**判断。草稿直接排除；其余状态按计划区间是否与汇报月份有交集决定（`planStartDate <= 月末 AND planEndDate >= 月初`）。这确保回溯历史月份时也能正确判断。详见 [references/traffic-light-rules.md](references/traffic-light-rules.md) 排除规则章节。
+- **判断卡片（Step 3c）**：仅对**参与自查**的关键成果和关键举措生成卡片。
+- **最终报告**：KR 级和举措级均嵌入三灯判断块；目标级灯色从 KR 级灯色聚合（有红则红，无红有黄则黄，全绿则绿，全黑则黑），每个目标嵌入目标级三灯判断块。
+- 所有灯色判断点使用统一的**三灯判断块**格式（见 report-template-bp-self-check.md "三灯判断块标准模板"一节）。
 
 ### 灯规则版本
 
-支持两个版本，由用户在调用时指定：
 
-- **版本一**（默认）：严格口径，适用于标准考核场景。
-- **版本二**：放宽口径——绿灯可容忍部分节点未完成或 1-2 周滞后；黄灯只用于已对最终达成构成实质威胁的事项，但仍必须整改。
 
-详见 [references/traffic-light-rules.md](references/traffic-light-rules.md) 的"版本二"章节。
+详见 [references/traffic-light-rules.md](references/traffic-light-rules.md) 。
 
 ### 证据引用编号
 
 最终报告中引用汇报时使用 `R{序号}` 编号（如 `R201`、`R202`），不直接内联汇报正文或 reportId。编号在 Step 3b 证据台账中分配。
+
+### 证据链接格式
+
+正文中所有 R 编号引用均使用**汇报直链**格式，点击后直接打开对应汇报详情页：
+
+```
+[R301](huibao://view?id={reportId})
+```
+
+**不使用** `[R301](#R301)` 页内锚点链接（该格式在工作协同中无法跳转）。每个 R 编号对应的 reportId 在 Step 3b 证据台账中确定。
 
 ### 灯色 HTML 渲染
 
@@ -91,14 +87,15 @@ dependencies:
 period_id: 1994002024299085826
 groupId: 2029384010718834690
 report_month: 2026-03
-light_rule_version: 版本二
 ```
 
 若用户只给了姓名，通过 `bp-data-viewer` 的 `search_group_by_name` 在个人分组中按名称匹配定位。若没有 `period_id`，用 `get_all_periods` 取 `status=1` 的启用周期。
 
-### 第二步：采集 BP 数据与当月汇报
+### 第二步：采集 BP 数据（分 2a 当月 + 2b 上月）
 
-确定 `groupId` 和月份后，使用 `collect_monthly_data` 一次性采集全部数据：
+#### Step 2a: 采集当月 BP 数据与汇报
+
+确定 `groupId` 和月份后，使用 `collect_monthly_data` 一次性采集当月全部数据：
 
 ```bash
 python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_monthly_data \
@@ -131,9 +128,40 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_m
 
 **注意**：单条汇报内容超过 2000 字会被截断并标注 `[...truncated]`。
 
-### 第三步：生成月报内容（分 4 个子步骤）
+#### Step 2b: 采集上月汇报与评价（参考基线）
 
-读取采集数据后，**必须按以下 4 个子步骤顺序执行**，不可跳步。
+当月数据采集完成后，使用 `collect_previous_month_data` 采集上个月的汇报和评价作为参考：
+
+```bash
+python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_previous_month_data \
+  --group_id "{groupId}" \
+  --month "2026-02" \
+  --output "/tmp/prev_month_data_{groupId}.json"
+```
+
+该命令在脚本内部自动完成：
+1. 调用 2.31 `listMonthlyReports` 获取上月所有月报的 `reportTypeDesc` + `reportRecordId`
+2. 对每个 `reportRecordId`，通过工作协同接口拉取汇报正文
+3. 调用 2.32 `getMonthlyEvaluation` 获取上月评价的翻译后 Markdown（自评 + 上级评价）
+4. 将全部数据写入一个聚合 JSON 文件
+
+**输出 JSON 结构**：
+
+| 字段 | 说明 |
+|------|------|
+| `reports` | 上月各类型月报列表，每条含 `reportTypeDesc`、`reportRecordId`、`title`、`content` |
+| `evaluations` | 上月评价 Markdown 列表，每条含 `evaluationTypeDesc`（自评/上级评价）和 `evaluationMarkdown` |
+| `stats` | 统计信息：报告数、评价数 |
+| `errors` | 采集过程中的错误记录（如有） |
+
+**使用方式**：
+- 上月报告正文作为本月汇报的纵向对比基线（上月做了什么 → 本月进展了什么）
+- 上月评价 Markdown 中的评分和评语可用于本月灯色判断的辅助参考（上级评价要求、上月偏差是否已改善）
+- 若上月数据为空（首月汇报），跳过此步骤，不影响后续流程
+
+### 第三步：生成月报内容（分 5 个子步骤）
+
+读取采集数据后，**必须按以下 5 个子步骤顺序执行**，不可跳步：3a → 3b → 3c → 3d → **3e（合规性校验）**。
 
 #### Step 3a: 构建 BP 锚点图
 
@@ -169,8 +197,14 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_m
    - 月份取汇报月份的数字（1月=1，12月=12）
    - 序号从 01 开始连续递增
    - 每条编号附带汇报标题全文，格式：`R{编号}`《[汇报标题]》
-5. **按节点归集**：利用 `reportTaskMapping` 确定每条汇报关联了哪些目标/关键成果/关键举措。一条汇报的内容如果明确涉及其他目标的关键词，应在对应节点的分析中交叉引用
-6. **月份归集口径**：以汇报的 `createTime` 为准，不依赖关联时间或正文时间推断
+   - **每条编号必须同时记录汇报链接**，格式：`huibao://view?id={reportId}`，其中 `{reportId}` 取自 `uniqueReportMap` 中该条汇报的原始 reportId（字符串原样，不做任何转换）。若一条工作事项由多条汇报聚合而成，取其中**第一条**的 reportId 生成链接
+5. **分配 RP 编号**（上月参考引用）：从 Step 2b 采集的上月数据中，对每条上月汇报按顺序分配 `RP{序号}` 编号（`RP01`、`RP02`...）。编号规则：
+   - 序号从 01 开始，按 `reports` 列表顺序递增
+   - 每条 RP 编号记录 `reportTypeDesc`（类型描述）、汇报标题和 `reportRecordId`（用于生成 `huibao://view?id={reportRecordId}` 链接）
+   - RP 编号仅用于基线引用和附录 A.3，**不参与**当月证据分级和灯色判断
+   - 若 Step 2b 无数据（首月），不分配 RP 编号
+6. **按节点归集**：利用 `reportTaskMapping` 确定每条汇报关联了哪些目标/关键成果/关键举措。一条汇报的内容如果明确涉及其他目标的关键词，应在对应节点的分析中交叉引用
+7. **月份归集口径**：以汇报的 `createTime` 为准，不依赖关联时间或正文时间推断
 
 将证据台账写入 `/tmp/evidence_ledger_{groupId}.md`，格式为：
 
@@ -178,9 +212,12 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_m
 ## 证据台账
 
 ### R 编号索引
-- `R301`《[汇报标题]》— 主证据，关联节点：目标X/KRY
-- `R302`《[汇报标题]》— 辅证，关联节点：举措Z
-- ...
+
+| R 编号 | 汇报标题 | 证据级别 | 汇报链接 | 关联节点 |
+|--------|---------|---------|---------|---------|
+| R301 | 《[汇报标题]》 | 主证据 | [查看汇报](huibao://view?id=xxxxxxxxxxxxx) | 目标X / KRY |
+| R302 | 《[汇报标题]》 | 辅证 | [查看汇报](huibao://view?id=xxxxxxxxxxxxx) | 举措Z |
+| ... | ... | ... | ... | ... |
 
 ### 统计摘要
 - 命中原始工作汇报：N 份
@@ -200,22 +237,25 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_m
 - 无证据：是/否
 ```
 
+**关键要求**：证据台账是最终报告附录的**唯一数据源**。Step 3d 组装附录时必须直接读取此文件，不得重新生成或凭记忆补写。
+
 #### Step 3c: 生成判断卡片
 
-对每个关键成果和每个关键举措，分别生成一张判断卡片。严格按 [references/traffic-light-rules.md](references/traffic-light-rules.md) 判断灯色（根据用户指定的灯规则版本）。
+**排除不参与自查的节点**：在生成卡片前，先按 [references/traffic-light-rules.md](references/traffic-light-rules.md) 的"排除规则"筛选。草稿直接排除；其余按 `planDateRange` 与汇报月份做区间交叉判断（计划区间与汇报月份无交集则排除）。被排除的 KR/举措**不生成卡片**，仅记录到跳过列表（含排除原因）。
 
-**关键成果卡**（每个关键成果一张）：
+对**参与自查**的每个关键成果和关键举措，分别生成一张判断卡片。灯色严格按 traffic-light-rules.md 的灯色判断优先级判定（根据用户指定的灯规则版本）。
+
+**关键成果卡**（仅对参与自查的关键成果生成）：
 
 ```markdown
 ### KR卡: [关键成果名称] ([编号])
 
 - 衡量标准：[从 measureStandard 提取]
 - 计划时间范围：[planDateRange]
-- 当月是否在计划期内：是/否
 - 本月主证据：[R编号列表]
 - 本月辅证：[R编号列表]
 - 距离衡量标准的差距：[基于证据判断]
-- 灯色判断：[🟢/🟡/🔴/⚫/--]
+- 灯色判断：[🟢/🟡/🔴/⚫]
 - 判断依据：[说明为什么是这个灯色]
 ```
 
@@ -235,100 +275,147 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py collect_m
 - 类型判断依据：
 ```
 
-**关键举措卡**（每个关键举措一张）：
+**关键举措卡**（仅对参与自查的关键举措生成）：
 
 ```markdown
 ### Action卡: [举措名称] ([编号])
 
 - 计划时间范围：[planDateRange]
-- 当月是否在计划期内：是/否
 - 当前状态：[statusDesc]
 - 本月推进动作：[从证据提取，引用R编号]
 - 对关键成果的支撑情况：[说明支撑了哪个 KR，强/中/弱]
-- 灯色判断：[🟢/🟡/🔴/⚫/--]
+- 灯色判断：[🟢/🟡/🔴/⚫]
 - 判断依据：
 ```
 
-将所有卡片写入 `/tmp/judgment_cards_{groupId}.md`。
+**跳过列表**（记录被排除的节点）：
 
-#### Step 3d: 组装最终报告
+```markdown
+## 本月不参与自查的节点
 
-基于判断卡片和证据台账，按 [references/report-template.md](references/report-template.md) 逐章组装。
+| 节点类型 | 名称 | 编号 | 计划时间范围 | 排除原因 |
+|---------|------|------|-------------|---------|
+| 关键成果 | [名称] | [编号] | [planDateRange] | 计划期未覆盖本月 / 草稿 |
+| 关键举措 | [名称] | [编号] | [planDateRange] | 计划期未覆盖本月 / 草稿 |
+```
 
-**组装顺序**（第 1 章放到最后写，但最终文件中排第 1 章）：
+将卡片和跳过列表一起写入 `/tmp/judgment_cards_{groupId}.md`。
 
-1. **元数据头**：填入周期名称、员工姓名、基线、口径说明、灯规则版本等
-2. **第 2 章 BP目标承接与对齐**：
-   - 按目标遍历，每个目标一个 `### 2.x` 小节
-   - 每个目标包含：对标BP、关键成果（KR摘要）、关键举措抓手（举措摘要）、本月承接重点、当前状态（叙事 + R编号证据引用）
-   - **目标级灯色**：综合该目标下所有 KR 卡片的灯色得出。规则：有任一红灯则目标红灯；无红灯但有黄灯则目标黄灯；全绿则目标绿灯；全黑灯则目标黑灯。-- 不参与汇总。
-   - 每个目标末尾嵌入**三灯判断块**
-3. **第 3 章 核心结果与经营表现**：
-   - 每个事项包含：对应目标、对应成果、本月结果（叙事）、结果判断
-   - 每个事项末尾嵌入**三灯判断块**
-4. **第 4 章 关键举措推进情况**：
-   - 每条举措包含：对应举措名、推进动作、支撑强度、当前进度
-   - 每条举措末尾嵌入**三灯判断块**
-5. **第 5 章 问题、偏差与原因分析**：
-   - 从 🟡/🔴/⚫ 卡片中提取，每个问题包含：对应BP、当前问题、原因分析、影响
-   - 每个问题末尾嵌入**三灯判断块**
-   - 若全部为 🟢 或 --，写"本期无重大偏差"
-6. **第 6 章 风险预警与资源需求**：
-   - 每个风险包含：对应BP、风险内容、当前应对、所需支持
-   - 每个风险末尾嵌入**三灯判断块**
-7. **第 7 章 下月重点安排**：精简 bullet list，4-5 条要点
-8. **第 8 章 需决策/需协同事项**：需拍板事项、需协调事项、需要支持事项
-9. **第 1 章 汇报综述**（最后写，但在文件中排第一）：
-   - 参考工作汇报数（三层口径，从证据台账统计摘要获取）
-   - 本月总体判断（叙事 + 三灯判断块）
-   - 本月最关键的进展（要点 + R编号证据引用）
-   - 本月最需要关注的问题
-   - 对下月的总体判断（叙事 + 三灯判断块）
+#### Step 3d: 组装 BP 自查报告
 
-**三灯判断块渲染规则**：
-- 灯色文字全部使用 HTML `<span>` 标签渲染（色值见 report-template.md 色值表）
-- 绿灯判断块：灯色 + 判断理由（共 2 行，不需要人工确认入口）
-- 黄灯/红灯/黑灯判断块：灯色 + 判断理由 + 人工判断待确认 + 若同意 + 若不同意 + 整改方案 + 承诺完成时间 + 下周期具体举措（共 8 行）
-- 黑灯判断块：在上述基础上再追加黑灯类型建议（共 9 行）
+按 [references/report-template-bp-self-check.md](references/report-template-bp-self-check.md) **逐字段严格对照**组装。**模板是最终报告的精确结构定义，当 SKILL 描述与模板有冲突时，以模板为准。**
 
-**最终文件章节排列**：1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+1. **元数据头**：填入周期、员工姓名、基线引用（RP 编号超链接，若首月则写"首月，无基线"）、证据说明（含 R 和 RP 编号说明）、灯规则版本
+2. **第 1 章 总体自查结论**：
+   - **1.1 结论**：必须包含 `一句话优势：` 和 `一句话短板：` 两个带标签的行，不可写成一整段
+   - **1.2 灯色分布概览**：使用 ` ```text ` 代码块，按目标级统计绿/黄/红/黑灯数量共 5 行。**被排除规则排除的目标不计入灯色统计**，单独注明"另有 N 个目标不参与本月自查"
+   - **1.3 本月最关键偏差点**：每条偏差必须包含 `偏差点` + `影响` + `原因假设` + `下月纠偏方向` 四个子字段（可选，最多 3 条；若无偏差可不写本节）
+3. **第 2 章 目标级自查明细**（按目标数量动态生成）：
+   - **2.1 目标清单总览表**：必须 7 列（目标编号 / BP目标 / 本月承诺口径 / 本月实际 / 证据引用 / 目标灯色 / 结论一句话）。仅列出**已参与自查的**目标，被排除的目标**不在此表中**
+   - **2.2 未参与自查目标汇总**（若存在被排除的目标）：必须 4 列（目标编号 / BP目标 / 计划时间范围 / 排除原因），一句话说明"以下目标不纳入本月自查"
+   - **2.3 目标明细**（仅对**已参与自查**的目标逐个展开，每个目标包含以下 **4 个必需子章节**）：
+     - **承诺与实际对照**：必须包含 `承诺口径` / `本月实际` / `差异点（若有）` / `证据` 四个字段，证据引用格式为 `[R编号](huibao://view?id={reportId})《汇报标题》`
+     - **关键成果达成与举措推进**：每个 KR 输出完整判断单元，必须包含 `衡量标准` / `本月结果` / `距离衡量标准` / `环比上月` / `证据` / `嵌入 KR 级三灯判断块` 六个子字段；KR 下按「└ 支撑举措」层级展开，每个支撑举措必须包含 `推进动作摘要` / `对结果支撑【强/中/弱】` / `当前进度（含量化）` / `证据` / `嵌入举措级三灯判断块` 五个子字段。目标下若有部分被排除的 KR/举措，在该目标明细末尾一句话带过
+     - **偏差问题与原因分析**：若有偏差必须包含 `问题现象` / `影响` / `原因假设` / `当前应对` / `证据` 五个字段；若全绿则写"本目标本期无重大偏差"
+     - **目标级综合灯色结论**：`结论一句话：` + 嵌入三灯判断块。**目标级灯色**规则：有任一红灯则红；无红灯有黄灯则黄；全绿则绿；全黑灯则黑。仅统计参与自查的 KR 卡片
+4. **第 3 章 自评**：**严格按模板输出，仅包含一个月度自评链接**，格式为 `[点击进入月度自评](https://sg-al-cwork-web.mediportal.com.cn/BP-manager/web/dist/#/monthly-review/self?groupId={groupId}&month={month})`。**不得**在此章节添加自我定性、结论解释或任何额外文字
+5. **附录：证据索引**：从 `/tmp/evidence_ledger_{groupId}.md` 直接读取 R 编号索引表原样搬入，包含 A.1 统计摘要 + A.2 证据索引表 + **A.3 上月参考索引**（RP 编号表 + 上月评价 Markdown 原文嵌入；若首月则写"首月汇报，无上月参考基线。"）
+6. **语言清洗检查**（见下方规则）
 
-将最终报告写入 `/tmp/monthly_report_{groupId}.md`。
+写入 `/tmp/report_selfcheck_{groupId}.md`。
 
-### 第四步：展示与发送
+#### Step 3e: 报告模板合规性校验（组装完成后、发送前必须执行）
 
-生成完成后，**必须先将完整月报展示给用户确认**，用户确认后再发送。
+对写入的报告文件逐项校验以下清单，**任一项不通过则回退修正后重新校验**，全部通过后方可进入发送流程：
+
+| 序号 | 校验项 | 校验标准 |
+|------|--------|---------|
+| 1 | **1.1 结论格式** | 必须包含 `一句话优势：` 和 `一句话短板：` 两个带标签的独立行 |
+| 2 | **1.2 灯色分布格式** | 必须使用 ` ```text ` 代码块，包含 🟢/🟡/🔴/⚫/未参与自查 共 5 行 |
+| 3 | **1.3 偏差点子字段** | 每条偏差必须有 `偏差点` / `影响` / `原因假设` / `下月纠偏方向` 4 个子字段 |
+| 4 | **2.1 总览表列数** | 必须 7 列：目标编号 / BP目标 / 本月承诺口径 / 本月实际 / 证据引用 / 目标灯色 / 结论一句话 |
+| 5 | **2.2 排除表列数** | 必须 4 列：目标编号 / BP目标 / 计划时间范围 / 排除原因 |
+| 6 | **目标明细 4 子章节** | 每个参与自查的目标必须包含：承诺与实际对照 → 关键成果达成与举措推进 → 偏差问题与原因分析 → 目标级综合灯色结论 |
+| 7a | **KR 级完整判断单元** | 每个参与自查的 KR 必须有 6 个子字段：衡量标准 / 本月结果 / 距离衡量标准 / 环比上月 / 证据 / KR 级三灯判断块 |
+| 7b | **举措级层级结构** | 每个举措必须有 5 个子字段：推进动作摘要 / 对结果支撑【强/中/弱】 / 当前进度（含量化：完成度百分比或里程碑阶段）/ 证据 / 举措级三灯判断块 |
+| 8 | **证据引用带标题** | 正文中 R 引用格式：`[R编号](huibao://...)《汇报标题》`，不可只写链接不带标题 |
+| 9 | **三灯判断块行数** | 绿灯 = 2 行；黄灯/红灯 = 8 行（含人工判断等占位）；黑灯 = 9 行（额外含类型建议） |
+| 10 | **第 3 章仅含链接** | Section 3 严格按模板：仅输出一个月度自评链接，不得包含自我定性、结论解释或其他文字 |
+| 11 | **附录 A.2 条数一致** | R 编号总数必须等于证据台账中的条数，不可多也不可少 |
+| 12 | **语言清洗 5 条规则** | 无技术字段泄漏、无空值直出、无模板括号注释、无系统流程说明、无 HTML 注释 |
+| 13 | **数据完整性** | 判断卡片中的所有 R 编号、灯色判断、偏差字段是否完整搬入正文，不可遗漏 |
+
+#### Step 4: 发送→保存
+
+**校验通过后直接发送**，无需等待用户确认。
 
 ```bash
 python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py send_report \
   --receiver_emp_id "{employeeId}" \
-  --title "{YYYY-MM} 个人BP月度汇报" \
-  --content_file "/tmp/monthly_report_{groupId}.md" \
+  --title "{员工姓名} {YYYY年M月} BP自查报告" \
+  --content_file "/tmp/report_selfcheck_{groupId}.md" \
   --sender_id "400002"
 ```
 
-**发送参数说明**：
-- `--receiver_emp_id`：接收人，即员工本人的 employeeId（从分组的 employeeId 字段获取）
-- `--title`：汇报标题，格式 `{YYYY-MM} 个人BP月度汇报`
-- `--content_file`：月报内容文件路径（Markdown）
-- `--sender_id`：发送人 ID，默认 `400002`（BP 系统虚拟用户）
+记录返回的 `data.id` → 记为 `report_record_id`，生成报告链接：`huibao://view?id={report_record_id}`
 
-**发送完成后，必须保存月报到 BP 系统**（2.22 saveMonthlyReport）：
+##### 保存到 BP 系统
+
+发送成功后，保存到 BP 系统：
 
 ```bash
 python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py save_monthly_report \
   --group_id "{groupId}" \
   --month "{YYYY-MM}" \
-  --content_file "/tmp/monthly_report_{groupId}.md" \
-  --report_record_id "{send_report返回的id}"
+  --content_file "/tmp/report_selfcheck_{groupId}.md" \
+  --report_record_id "{report_record_id}"
 ```
 
-**保存参数说明**：
-- `--group_id`：员工个人分组 ID
-- `--month`：汇报月份，格式 `YYYY-MM`
-- `--content_file`：月报内容文件路径（同发送时使用的文件）
-- `--report_record_id`：**必填**，`send_report` 返回的 `data.id` 值
-- 使用 **数据查询 key**（`BP_OPEN_API_APP_KEY`）调用，机器人 key 无权限
+##### 语言清洗检查（报告组装完成后、写入文件前必须执行）
+
+对全文逐段扫描，确认以下五条规则全部通过后才能写入文件：
+
+1. **禁止技术字段泄漏**：正文中不得出现 API 原始字段名，包括但不限于：
+   `reportId`、`authorEmpId`、`createTime`、`taskId`、`groupId`、`employeeId`、`type=manual`、`type=ai`、`contentHtml`、`planDateRange`、`statusDesc`、`measureStandard`、`fullLevelNumber`、`upwardTaskList`、`reportTaskMapping`。
+   如需表达相关含义，必须改用自然语言。
+
+2. **句式自然化**：所有描述采用"主语 + 谓语 + 宾语"的自然句式。以下表述**严禁出现**：
+   - ~~"XX 为空"~~ → "本月尚未收到相关汇报"
+   - ~~"数据不完整"~~ → "当前可获取的信息有限，建议补充"
+   - ~~"举证原数据不完整"~~ → "本月关联的工作汇报内容较少，尚不足以全面评估"
+   - ~~"本月最关键的进展为空"~~ → "本月暂无可明确标注的关键进展，建议关注 XX 方向"
+   - ~~"无关联汇报"~~ → "本月该事项下暂未收到工作汇报"
+
+3. **禁止空值直出**：空字段必须改写为有引导意义的自然语句。
+
+4. **禁止模板括号注释泄漏**：最终报告是直接发送给员工阅读的，章节标题中的括号说明文字一律不得出现在最终报告中。以下为必须清洗的映射表：
+   - ~~`（目标主线）`~~ → 标题中不加此后缀
+   - ~~`（先给结论，再给依据）`~~ → 删除
+   - ~~`（四档）`~~ → 删除
+   - ~~`（目标级）`~~ → 删除
+   - ~~`（可选，最多 3 条）`~~ → 删除
+   - ~~`（本报告主体，按目标动态生成）`~~ → 删除
+   - ~~`（承诺 vs 实际，表格）`~~ → 删除
+   - ~~`（逐目标展开：承诺对照 + 结果 + 举措 + 偏差问题）`~~ → 删除
+   - ~~`（可验收口径）`~~ → 删除
+   - ~~`（按成果层级展开）`~~ → 删除
+   - ~~`（若无偏差写"本目标本期无重大偏差"）`~~ → 删除
+   - ~~`（必填）`~~ → 删除
+   - ~~`（必须输出）`~~ → 删除
+   - ~~`（两句以内）`~~ → 删除
+   - 通用规则：**任何以中文括号 `（）` 包裹的、用于指导 AI 生成行为的说明文字**，一律不输出
+
+5. **禁止系统流程说明泄漏**：以下内容不得出现在最终报告中：
+   - "以下自 Step 3b 证据台账原样搬入"或类似提及内部步骤编号（Step 3a/3b/3c/3d）的文字
+   - "字段与台账一致；R 列已加页内锚点"等内部实现说明（含任何提及"页内锚点"的文字）
+   - "约束：本章小节数量必须随…"等以"约束："开头的系统提示
+   - "AI 指引："开头的任何文字
+   - 任何 `<!-- ... -->` HTML 注释标签及其内容
+
+##### 附录搬运规则
+
+- 报告的证据索引附录必须从 `/tmp/evidence_ledger_{groupId}.md` **直接读取并原样搬入**
+- 若台账文件不存在或为空，必须回退重新执行对应步骤，**不得跳过或伪造**
 
 ## 工具脚本
 
@@ -347,9 +434,10 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> 
 | action | 说明 | 必填参数 | 可选参数 |
 |--------|------|----------|----------|
 | `collect_monthly_data` | 一次性采集 BP 结构 + 当月汇报数据，输出聚合 JSON | `--group_id`、`--month` | `--output` |
+| `collect_previous_month_data` | 采集上月汇报+评价（类型+正文+评价Markdown），作为本月参考基线 | `--group_id`、`--month`（上月YYYY-MM） | `--output` |
 | `get_report_content` | 获取单条汇报正文内容 | `--report_id` | 无 |
-| `send_report` | 发送月度汇报（工作协同） | `--receiver_emp_id`、`--title`、`--content_file` | `--sender_id` |
-| `save_monthly_report` | 保存月报到 BP 系统（2.22 saveMonthlyReport） | `--group_id`、`--month`、`--content_file`、`--report_record_id` | 无 |
+| `send_report` | 发送报告（工作协同） | `--receiver_emp_id`、`--title`、`--content_file` | `--sender_id` |
+| `save_monthly_report` | 保存月报到 BP 系统 | `--group_id`、`--month`、`--content_file`、`--report_record_id` | 无 |
 
 ## 批量生成
 
@@ -357,35 +445,53 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> 
 
 1. `get_all_periods` → 获取启用周期
 2. `get_group_tree --only_personal` → 获取所有个人分组
-3. 遍历每个个人分组，对每人执行 `collect_monthly_data` → 分步生成月报 → 发送 → 保存到 BP 系统
+3. 遍历每个个人分组，对每人执行 `collect_monthly_data` → 分步生成报告 → 发送 → 保存到 BP 系统
 
 **注意**：批量生成前必须征得用户明确同意，并告知预计耗时。
 
 ## 重要约束
 
+### 通用约束
+
 - 所有 ID 参数保持字符串原样传递，**严禁 parseInt 或 Number 转换**
-- **严禁测试发送**：`send_report` 接口会将内容真实推送给员工，**绝对不允许**用测试数据、占位内容或 debug 用途调用此接口。只有在月报内容已完整生成、用户已确认的情况下，才能调用 `send_report`。任何"试一下接口通不通"的行为都是禁止的
-- 月报内容**必须先展示给用户确认**，确认后才能发送
-- **发送报错重试机制**：以下两种错误脚本会自动等待 60 秒后重试一次（API 按分钟限流）：
-  - **"汇报人ID有误"**：先检查是否使用了内置机器人 key（`SEND_REPORT_APP_KEY`）而非用户的数据查询 key（`BP_OPEN_API_APP_KEY`），确认 key 正确后等待 60 秒再重试
-  - **resultCode=401 且参数正确**：视为接口限流，等待 60 秒后重试
-- **发送后必须保存**：调用 `send_report` 发送工作协同后，必须接着调用 `save_monthly_report` 将月报持久化到 BP 系统
-- **禁止一步生成整篇报告**，必须走 3a → 3b → 3c → 3d 四步
-- 第 2 章小节数量必须与实际 BP 目标数量一致，**不可写死**
-- 第 2 章灯色判断到**目标级**，综合该目标下所有 KR 卡片得出
-- 第 4 章灯色判断到**关键举措级**，每条举措单独带灯
-- 所有灯色判断点统一使用**三灯判断块**（含人工确认入口）
-- 最终报告中证据引用使用 `R{编号}` + 汇报标题，不内联正文
+- **严禁测试发送**：`send_report` 接口会将内容真实推送给员工，**绝对不允许**用测试数据、占位内容或 debug 用途调用此接口。只有在报告内容已完整生成且 Step 3e 校验全部通过的情况下，才能调用 `send_report`。任何"试一下接口通不通"的行为都是禁止的
+- **校验通过后直接发送**：报告必须走完"组装 → 模板合规性校验（Step 3e）→ 发送 → 保存"完整周期。校验通过后**不再**等待用户确认，直接发送
+- **禁止一步生成整篇报告**，必须走 3a → 3b → 3c → 3d → 3e 五步
 - 灯色文字使用 HTML `<span>` 彩色加粗渲染
 - 灯色判断必须严格按 [references/traffic-light-rules.md](references/traffic-light-rules.md) 标准（注意灯规则版本）
 - 证据处理必须严格按 [references/evidence-rules.md](references/evidence-rules.md) 标准
 - 汇报计数以 reportId 去重后为准，内容相似的批量发送按一个工作事项计算
 - 月份归集以汇报的 `createTime` 为准，不依赖关联时间
-- 发送人默认 `400002`，对应 `BpGroupCheckService` 中的 `BP_SYSTEM_USER_MAP` 默认值
-- 汇报接收人是员工本人（`employeeId`），**不是** `groupId`
-- **查询数据**（collect_monthly_data 等）使用用户提供的 key，通过环境变量 `BP_OPEN_API_APP_KEY` 配置
-- **发送汇报**（send_report）使用固定的机器人 key `1xmsXv2yv11OVqkd3zb5yG441sO5AB04`，已内置于脚本，无需额外配置
-- 附件读取和在线汇报链接为待接入能力，**不可伪造**
+
+### 发送与保存约束
+
+- **发送报错重试机制**：以下两种错误脚本会自动等待 60 秒后重试一次（API 按分钟限流）：
+  - **"汇报人ID有误"**：先检查是否使用了内置机器人 key（`SEND_REPORT_APP_KEY`）而非用户的数据查询 key（`BP_OPEN_API_APP_KEY`），确认 key 正确后等待 60 秒再重试
+  - **resultCode=401 且参数正确**：视为接口限流，等待 60 秒后重试
+- 发送后必须记录 `data.id` 并生成 `huibao://view?id={data.id}` 链接
+- 发送人默认 `400002`，汇报接收人是员工本人（`employeeId`），**不是** `groupId`
+- **查询数据**使用用户提供的 key（`BP_OPEN_API_APP_KEY`），**发送汇报**使用固定的机器人 key `1xmsXv2yv11OVqkd3zb5yG441sO5AB04`（已内置）
+
+### 报告（BP自查报告）约束
+
+- 目标数量必须与实际 BP 目标数量一致，**不可写死**
+- **排除规则**：基于 `planDateRange` 区间交叉判断——草稿直接排除，其余按计划区间是否与汇报月份有交集决定。被排除的目标/KR/举措不生成卡片、不计入灯色统计，仅在报告中简要列示
+- 灯色判断到 **KR 级**和**目标级**：每个参与自查的 KR 嵌入 KR 级三灯判断块，每个举措嵌入举措级三灯判断块，目标级灯色从 KR 级灯色聚合得出
+- 每个参与自查的目标嵌入目标级三灯判断块
+- 报告以"目标"为底座组织内容，不把"目标/结果/举措/问题"拆成独立章节分别看
+- 目标清单总览表仅展示已参与自查的目标，展示承诺 vs 实际的对比视角
+
+### 证据引用约束
+
+- 正文中**当月**证据引用使用 `[R编号](huibao://view?id={reportId})` 格式，点击直接打开对应汇报详情页
+- 正文中**上月参考**引用使用 `[RP编号](huibao://view?id={reportRecordId})` 格式，RP 编号仅出现在元数据头基线行和附录 A.3
+- `R` 编号（当月证据）和 `RP` 编号（上月参考）使用不同前缀，**严禁混用**
+- **不使用** `[R编号](#R编号)` 页内锚点链接（在工作协同中无法跳转）
+- 附录证据索引表中 R 编号直接展示文本（不需要 `<span id>` 锚点标签），汇报链接列保持 `[查看汇报](huibao://view?id={reportId})` 格式
+- 汇报链接 reportId 从 `uniqueReportMap` 原样取用，reportRecordId 从 `collect_previous_month_data` 输出原样取用，**严禁伪造或编造**
+- 附录 A.1 + A.2 必须从证据台账文件（`/tmp/evidence_ledger_{groupId}.md`）**直接读取并原样搬入**，确保条数完全一致
+- 附录 A.3 从 Step 2b 采集的上月数据生成，若首月则整节替换为"首月汇报，无上月参考基线。"
+- 附件读取为待接入能力，**不可伪造**
 
 ## 环境配置
 
@@ -400,6 +506,6 @@ python3 .cursor/skills/bp-monthly-report/scripts/monthly_report_api.py <action> 
 ## 错误处理
 
 - BP 数据获取失败时，提示用户检查 `BP_OPEN_API_APP_KEY` 配置
-- 汇报发送失败时，保留已生成的月报内容，提示用户可手动重试发送
-- **"汇报人ID有误"或 401 限流**：脚本自动检查 key 并等待 60 秒后重试一次；若重试仍失败，保留月报内容并提示用户排查该员工在工作协同系统中的账号状态
-- 某个目标下无汇报数据时，在月报中标注"本月无汇报"并按灯色规则判断，不中断整体流程
+- 报告发送失败时，保留报告文件，提示用户可手动重试
+- **"汇报人ID有误"或 401 限流**：脚本自动检查 key 并等待 60 秒后重试一次；若重试仍失败，保留报告内容并提示用户排查
+- 某个目标下无汇报数据时，在报告中标注"本月暂未收到工作汇报"并按灯色规则判断，不中断整体流程

@@ -5,10 +5,11 @@ Usage:
     python monthly_report_api.py <action> [options]
 
 Actions:
-    collect_monthly_data  Aggregate all BP data + reports for one employee/month into a single JSON
-    get_report_content    Get report body content by report ID
-    send_report           Send monthly report via work-report API
-    save_monthly_report   Save monthly report to BP system (2.22 saveMonthlyReport)
+    collect_monthly_data        Aggregate all BP data + reports for one employee/month into a single JSON
+    collect_previous_month_data Aggregate previous month's reports + evaluations as reference context
+    get_report_content          Get report body content by report ID
+    send_report                 Send monthly report via work-report API
+    save_monthly_report         Save monthly report to BP system (2.22 saveMonthlyReport)
 
 Environment:
     BP_OPEN_API_APP_KEY       Authentication key (required)
@@ -300,6 +301,7 @@ def get_report_content(args):
 
 
 def _do_send_report(url, headers, body):
+    """Execute the actual HTTP POST for send_report."""
     resp = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
@@ -309,10 +311,12 @@ def _do_send_report(url, headers, body):
 
 
 def _is_rate_limited(result):
+    """Check if the error indicates API rate limiting (resultCode 401 with valid params)."""
     return result.get("resultCode") == 401
 
 
 def _should_retry_send(result):
+    """Determine if send_report should retry based on error type."""
     error_msg = str(result.get("error", ""))
     if "汇报人ID有误" in error_msg:
         return "emp_id_error"
@@ -351,6 +355,7 @@ def send_report(args):
         "main": args.title,
         "contentHtml": content,
         "contentType": "markdown",
+        "templateId": 2042140681165959169,
         "reportLevelList": [
             {
                 "level": 1,
@@ -376,15 +381,11 @@ def send_report(args):
     retry_reason = _should_retry_send(result) if result.get("error") else None
     if retry_reason:
         if retry_reason == "emp_id_error":
-            _log(
-                f"Got '汇报人ID有误' for empId={args.receiver_emp_id}. "
-                f"Verifying key is SEND_REPORT_APP_KEY (not BP_OPEN_API_APP_KEY)..."
-            )
+            _log(f"Got '汇报人ID有误' for empId={args.receiver_emp_id}. "
+                 f"Verifying key is SEND_REPORT_APP_KEY (not BP_OPEN_API_APP_KEY)...")
         elif retry_reason == "rate_limited":
-            _log(
-                f"Got resultCode=401 (rate limited) for empId={args.receiver_emp_id}. "
-                f"Params look correct, treating as rate limit..."
-            )
+            _log(f"Got resultCode=401 (rate limited) for empId={args.receiver_emp_id}. "
+                 f"Params look correct, treating as rate limit...")
 
         if headers["appKey"] != SEND_REPORT_APP_KEY:
             _log("ERROR: wrong key detected, switching to SEND_REPORT_APP_KEY")
@@ -463,8 +464,97 @@ def save_monthly_report(args):
     return result
 
 
+def collect_previous_month_data(args):
+    """Aggregate previous month's reports + evaluations as reference for current month.
+
+    1. Call 2.31 listMonthlyReports — get reportTypeDesc + reportRecordId for previous month
+    2. For each reportRecordId, fetch report content via work-report API
+    3. Call 2.32 getMonthlyEvaluation — get translated Markdown (self + manager)
+    4. Write aggregated JSON to --output file
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for collect_previous_month_data"}
+    if not args.month:
+        return {"error": "month (YYYY-MM, the previous month) is required for collect_previous_month_data"}
+
+    errors = []
+    prev_month = args.month
+
+    # Step 1: list monthly reports for previous month
+    _log(f"Fetching monthly report list for {prev_month}...")
+    reports_result = _request("GET", "/bp/monthly/report/listByMonth",
+                              params={"groupId": args.group_id, "reportMonth": prev_month})
+
+    report_items = []
+    if reports_result.get("success"):
+        report_items = reports_result.get("data") or []
+        _log(f"Found {len(report_items)} report(s) for {prev_month}")
+    else:
+        errors.append({"step": "list_monthly_reports", "error": reports_result.get("error")})
+
+    # Step 2: fetch report content for each reportRecordId
+    report_contents = []
+    for item in report_items:
+        rid = item.get("reportRecordId")
+        type_desc = item.get("reportTypeDesc", "")
+        if not rid:
+            continue
+        _log(f"Fetching report content: {type_desc} (id={rid})")
+        content_result = _request("GET", "/work-report/report/info", params={"reportId": str(rid)})
+        if content_result.get("success") and content_result.get("data"):
+            rd = content_result["data"]
+            content_html = rd.get("contentHtml") or rd.get("content") or ""
+            report_contents.append({
+                "reportTypeDesc": type_desc,
+                "reportRecordId": str(rid),
+                "title": rd.get("main", ""),
+                "content": _truncate(content_html),
+                "createTime": rd.get("createTime"),
+            })
+        else:
+            errors.append({"step": "report_content", "id": str(rid), "error": content_result.get("error")})
+
+    # Step 3: fetch monthly evaluation Markdown
+    _log(f"Fetching monthly evaluation for {prev_month}...")
+    eval_result = _request("GET", "/bp/monthly/evaluation/query",
+                           params={"groupId": args.group_id, "evaluationMonth": prev_month})
+
+    evaluations = []
+    if eval_result.get("success"):
+        evaluations = eval_result.get("data") or []
+        _log(f"Found {len(evaluations)} evaluation(s) for {prev_month}")
+    else:
+        errors.append({"step": "monthly_evaluation", "error": eval_result.get("error")})
+
+    # Step 4: build output
+    output = {
+        "groupId": args.group_id,
+        "previousMonth": prev_month,
+        "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "reports": report_contents,
+        "evaluations": evaluations,
+        "stats": {
+            "reportCount": len(report_contents),
+            "evaluationCount": len(evaluations),
+        },
+    }
+    if errors:
+        output["errors"] = errors
+
+    output_path = args.output
+    if not output_path:
+        output_path = f"/tmp/prev_month_data_{args.group_id}.json"
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    _log(f"Done! Previous month data written to {output_path}")
+    return {"success": True, "outputFile": output_path, "stats": output["stats"]}
+
+
 ACTION_MAP = {
     "collect_monthly_data": collect_monthly_data,
+    "collect_previous_month_data": collect_previous_month_data,
     "get_report_content": get_report_content,
     "send_report": send_report,
     "save_monthly_report": save_monthly_report,
