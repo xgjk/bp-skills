@@ -5,11 +5,14 @@ Usage:
     python monthly_report_api.py <action> [options]
 
 Actions:
-    collect_monthly_data        Aggregate all BP data + reports for one employee/month into a single JSON
+    collect_monthly_overview    Fetch task tree + goal list (lightweight, per-goal workflow step 1)
+    collect_goal_data           Collect BP detail + reports for a single goal (per-goal workflow step 2)
+    collect_monthly_data        [Legacy] Aggregate all BP data + reports into a single JSON
     collect_previous_month_data Aggregate previous month's reports + evaluations as reference context
     get_report_content          Get report body content by report ID
     send_report                 Send monthly report via work-report API
     save_monthly_report         Save monthly report to BP system (2.22 saveMonthlyReport)
+    update_report_status        Update monthly report generation status (0=generating, 1=success, 2=failed)
 
 Environment:
     BP_OPEN_API_APP_KEY       Authentication key (required)
@@ -37,10 +40,29 @@ TIMEOUT = 30
 DEFAULT_SENDER_ID = "400002"
 REPORT_CONTENT_MAX_CHARS = 2000
 SEND_RETRY_DELAY_SECONDS = 60
+QUERY_RETRY_DELAY_SECONDS = 60
+QUERY_MAX_RETRIES = 1
 
 
 def _log(msg):
     print(f"[progress] {msg}", file=sys.stderr)
+
+
+def _do_request(method, url, headers, params=None, json_body=None):
+    """Execute a single HTTP request and return parsed result."""
+    if method == "GET":
+        resp = requests.get(url, params=params, headers=headers, timeout=TIMEOUT)
+    else:
+        req_headers = {**headers, "Content-Type": "application/json"}
+        resp = requests.post(url, params=params, json=json_body, headers=req_headers, timeout=TIMEOUT)
+
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data.get("resultCode") != 1:
+        return {"error": data.get("resultMsg", "Unknown API error"), "resultCode": data.get("resultCode")}
+
+    return {"success": True, "data": data.get("data")}
 
 
 def _request(method, path, *, params=None, json_body=None):
@@ -50,25 +72,28 @@ def _request(method, path, *, params=None, json_body=None):
     url = f"{BASE_URL}{path}"
     headers = {"appKey": APP_KEY}
 
-    try:
-        if method == "GET":
-            resp = requests.get(url, params=params, headers=headers, timeout=TIMEOUT)
-        else:
-            headers["Content-Type"] = "application/json"
-            resp = requests.post(url, params=params, json=json_body, headers=headers, timeout=TIMEOUT)
+    for attempt in range(1 + QUERY_MAX_RETRIES):
+        try:
+            result = _do_request(method, url, headers, params=params, json_body=json_body)
+        except requests.HTTPError as e:
+            result = {"error": f"HTTP {e.response.status_code}: {e.response.text}",
+                      "resultCode": e.response.status_code}
+        except Exception as e:
+            return {"error": str(e)}
 
-        resp.raise_for_status()
-        data = resp.json()
+        if result.get("success"):
+            return result
 
-        if data.get("resultCode") != 1:
-            return {"error": data.get("resultMsg", "Unknown API error"), "resultCode": data.get("resultCode")}
+        rc = result.get("resultCode")
+        is_retryable = rc in (401, 429) or (isinstance(rc, int) and rc >= 500)
+        if is_retryable and attempt < QUERY_MAX_RETRIES:
+            _log(f"Query got resultCode={rc} on {path}, waiting {QUERY_RETRY_DELAY_SECONDS}s before retry...")
+            time.sleep(QUERY_RETRY_DELAY_SECONDS)
+            continue
 
-        return {"success": True, "data": data.get("data")}
+        return result
 
-    except requests.HTTPError as e:
-        return {"error": f"HTTP {e.response.status_code}: {e.response.text}"}
-    except Exception as e:
-        return {"error": str(e)}
+    return result
 
 
 # ─── Task tree helpers ────────────────────────────────────────────
@@ -127,7 +152,218 @@ def _truncate(text, max_chars=REPORT_CONTENT_MAX_CHARS):
     return text
 
 
-# ─── collect_monthly_data ─────────────────────────────────────────
+def _collect_goal_summary(nodes):
+    """Extract summary info for each top-level goal from slim task tree."""
+    goals = []
+    for node in (nodes or []):
+        ntype = node.get("type", "")
+        if "目标" in ntype:
+            goals.append({
+                "goalId": str(node["id"]) if node.get("id") else None,
+                "name": node.get("name", ""),
+                "fullLevelNumber": node.get("fullLevelNumber", ""),
+                "planDateRange": node.get("planDateRange", ""),
+                "statusDesc": node.get("statusDesc", ""),
+            })
+    return goals
+
+
+def _extract_ids_from_goal_detail(goal_detail):
+    """Recursively extract all node IDs from a goal detail response.
+
+    Handles both field naming conventions from the API:
+    - keyResultList / keyResults for KR list
+    - actionList / actions for action list
+    """
+    ids = []
+    if not goal_detail:
+        return ids
+    gid = goal_detail.get("id")
+    if gid:
+        ids.append(str(gid))
+    kr_list = goal_detail.get("keyResultList") or goal_detail.get("keyResults") or []
+    for kr in kr_list:
+        kid = kr.get("id")
+        if kid:
+            ids.append(str(kid))
+        action_list = kr.get("actionList") or kr.get("actions") or []
+        for action in action_list:
+            aid = action.get("id")
+            if aid:
+                ids.append(str(aid))
+    return ids
+
+
+def _build_report_content(rd, truncate=True):
+    """Build a report content dict from raw API response."""
+    content_html = rd.get("contentHtml") or rd.get("content") or ""
+    return {
+        "reportId": str(rd.get("id") or rd.get("reportId") or ""),
+        "title": rd.get("main", ""),
+        "content": _truncate(content_html) if truncate else content_html,
+        "contentType": rd.get("contentType", ""),
+        "createTime": rd.get("createTime"),
+        "authorEmpId": rd.get("writeEmpId") or rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
+        "authorName": rd.get("writeEmpName") or rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
+    }
+
+
+# ─── collect_monthly_overview ─────────────────────────────────────
+
+def collect_monthly_overview(args):
+    """Fetch task tree and output goal list + global stats (lightweight).
+
+    This is the first step of the per-goal collection workflow:
+    1. Fetch task tree for the group
+    2. Extract goal summary list
+    3. Write lightweight JSON with tree + goals + stats
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for collect_monthly_overview"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for collect_monthly_overview"}
+
+    _log("Fetching task tree...")
+    tree_result = _request("GET", "/bp/task/v2/getSimpleTree", params={"groupId": args.group_id})
+    if not tree_result.get("success"):
+        return {"error": f"Failed to fetch task tree: {tree_result.get('error')}"}
+
+    raw_tree = tree_result["data"]
+    task_tree = _slim_task_tree(raw_tree) if raw_tree else []
+    all_ids = _collect_all_ids(task_tree)
+    goals = _collect_goal_summary(task_tree)
+
+    output = {
+        "groupId": args.group_id,
+        "month": args.month,
+        "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "taskTree": task_tree,
+        "goals": goals,
+        "stats": {"totalGoals": len(goals), "totalNodes": len(all_ids)},
+    }
+
+    output_path = args.output or f"/tmp/monthly_overview_{args.group_id}.json"
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    _log(f"Done! Overview written to {output_path} ({len(goals)} goals, {len(all_ids)} nodes)")
+    return {"success": True, "outputFile": output_path, "stats": output["stats"]}
+
+
+# ─── collect_goal_data ────────────────────────────────────────────
+
+def collect_goal_data(args):
+    """Collect BP detail + reports for a single goal (per-goal granularity).
+
+    1. Fetch goal detail (with KRs and actions)
+    2. Extract all node IDs under this goal
+    3. Query reports for each node within the month
+    4. Fetch full report content for all unique report IDs (no truncation)
+    5. Build reverse index and per-task report data
+    6. Write independent JSON file for this goal
+    """
+    if not args.goal_id:
+        return {"error": "goal_id is required for collect_goal_data"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for collect_goal_data"}
+
+    errors = []
+    time_start, time_end = _month_time_range(args.month)
+
+    _log(f"Fetching goal detail: {args.goal_id}")
+    detail = _request("GET", "/bp/task/v2/getGoalAndKeyResult", params={"id": args.goal_id})
+    if not detail.get("success"):
+        return {"error": f"Failed to fetch goal detail: {detail.get('error')}"}
+
+    goal_detail = detail["data"]
+    node_ids = _extract_ids_from_goal_detail(goal_detail)
+    _log(f"Goal has {len(node_ids)} nodes")
+
+    task_report_ids = {}
+    all_report_ids = set()
+    for i, tid in enumerate(node_ids, 1):
+        body = {
+            "taskId": tid,
+            "pageIndex": 1,
+            "pageSize": 200,
+            "businessTimeStart": time_start,
+            "businessTimeEnd": time_end,
+        }
+        result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
+        if result.get("success"):
+            records = result["data"].get("list") or []
+            biz_ids = []
+            for rec in records:
+                bid = rec.get("bizId")
+                if bid:
+                    bid_str = str(bid)
+                    biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
+                    all_report_ids.add(bid_str)
+            if biz_ids:
+                task_report_ids[tid] = biz_ids
+        else:
+            errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
+
+    _log(f"Found {len(all_report_ids)} unique reports across {len(task_report_ids)} nodes")
+
+    report_contents = {}
+    for i, rid in enumerate(sorted(all_report_ids), 1):
+        if i % 10 == 0 or i == len(all_report_ids):
+            _log(f"  fetching report content {i}/{len(all_report_ids)}")
+        result = _request("GET", "/work-report/report/info", params={"reportId": rid})
+        if result.get("success") and result["data"]:
+            rc = _build_report_content(result["data"], truncate=False)
+            rc["reportId"] = rid
+            report_contents[rid] = rc
+        else:
+            errors.append({"step": "report_content", "id": rid, "error": result.get("error")})
+
+    report_task_mapping = {}
+    for tid, biz_entries in task_report_ids.items():
+        for entry in biz_entries:
+            bid = entry["bizId"]
+            report_task_mapping.setdefault(bid, [])
+            if tid not in report_task_mapping[bid]:
+                report_task_mapping[bid].append(tid)
+
+    reports_by_task = {}
+    for tid, biz_entries in task_report_ids.items():
+        task_reports = []
+        for entry in biz_entries:
+            bid = entry["bizId"]
+            rc = report_contents.get(bid)
+            if rc:
+                task_reports.append({**rc, "type": entry.get("type", ""), "businessTime": entry.get("businessTime")})
+        if task_reports:
+            reports_by_task[tid] = task_reports
+
+    output = {
+        "goalId": args.goal_id,
+        "groupId": getattr(args, "group_id", None) or "",
+        "month": args.month,
+        "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "goalDetail": goal_detail,
+        "uniqueReportMap": report_contents,
+        "reportTaskMapping": report_task_mapping,
+        "reports": reports_by_task,
+        "stats": {
+            "nodeCount": len(node_ids),
+            "uniqueReportCount": len(all_report_ids),
+            "fetchedReportContents": len(report_contents),
+        },
+    }
+    if errors:
+        output["errors"] = errors
+
+    output_path = args.output or f"/tmp/goal_data_{args.goal_id}.json"
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    _log(f"Done! Goal data written to {output_path}")
+    return {"success": True, "outputFile": output_path, "stats": output["stats"]}
+
+
+# ─── collect_monthly_data (legacy, kept for backward compatibility) ──
 
 def collect_monthly_data(args):
     """Aggregate all BP structure + report data for one employee/month.
@@ -209,17 +445,9 @@ def collect_monthly_data(args):
             _log(f"  fetching report content {i}/{len(report_id_list)}")
         result = _request("GET", "/work-report/report/info", params={"reportId": rid})
         if result.get("success") and result["data"]:
-            rd = result["data"]
-            content_html = rd.get("contentHtml") or rd.get("content") or ""
-            report_contents[rid] = {
-                "reportId": rid,
-                "title": rd.get("main", ""),
-                "content": _truncate(content_html),
-                "contentType": rd.get("contentType", ""),
-                "createTime": rd.get("createTime"),
-                "authorEmpId": rd.get("writeEmpId") or rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
-                "authorName": rd.get("writeEmpName") or rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
-            }
+            rc = _build_report_content(result["data"], truncate=True)
+            rc["reportId"] = rid
+            report_contents[rid] = rc
         else:
             errors.append({"step": "report_content", "id": rid, "error": result.get("error")})
 
@@ -444,23 +672,49 @@ def save_monthly_report(args):
         "reportRecordId": int(args.report_record_id),
     }
 
-    url = f"{BASE_URL}/bp/monthly/report/save"
-    headers = {"appKey": APP_KEY, "Content-Type": "application/json"}
-
-    try:
-        resp = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("resultCode") != 1:
-            return {"error": data.get("resultMsg", "Unknown API error"), "resultCode": data.get("resultCode")}
-        result = {"success": True, "data": data.get("data")}
-    except requests.RequestException as exc:
-        return {"error": f"Network error: {exc}"}
+    _log(f"Saving monthly report: groupId={args.group_id}, month={args.month}")
+    result = _request("POST", "/bp/monthly/report/save", json_body=body)
 
     if result.get("success"):
-        print(f"[info] Monthly report saved to BP system. groupId: {args.group_id}, month: {args.month}, "
-              f"reportId: {result['data']}", file=sys.stderr)
+        _log(f"Monthly report saved. groupId: {args.group_id}, month: {args.month}, "
+             f"reportId: {result['data']}")
 
+    return result
+
+
+def update_report_status(args):
+    """POST /bp/monthly/report/updateStatus — update monthly report generation status.
+
+    Uses the data-query APP_KEY (not the send-report robot key).
+    status: 0=generating, 1=success, 2=failed
+    fail_reason: required when status=2
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for update_report_status"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for update_report_status"}
+    if args.status is None:
+        return {"error": "status (0/1/2) is required for update_report_status"}
+
+    status_val = int(args.status)
+    if status_val not in (0, 1, 2):
+        return {"error": "status must be 0 (generating), 1 (success), or 2 (failed)"}
+    if status_val == 2 and not args.fail_reason:
+        return {"error": "fail_reason is required when status=2 (failed)"}
+
+    body = {
+        "groupId": int(args.group_id),
+        "reportMonth": args.month,
+        "generateStatus": status_val,
+    }
+    if args.fail_reason:
+        body["failReason"] = args.fail_reason
+
+    _log(f"Updating report status: groupId={args.group_id}, month={args.month}, status={status_val}")
+    result = _request("POST", "/bp/monthly/report/updateStatus", json_body=body)
+
+    if result.get("success"):
+        _log(f"Report status updated. reportId={result.get('data')}")
     return result
 
 
@@ -553,11 +807,14 @@ def collect_previous_month_data(args):
 
 
 ACTION_MAP = {
+    "collect_monthly_overview": collect_monthly_overview,
+    "collect_goal_data": collect_goal_data,
     "collect_monthly_data": collect_monthly_data,
     "collect_previous_month_data": collect_previous_month_data,
     "get_report_content": get_report_content,
     "send_report": send_report,
     "save_monthly_report": save_monthly_report,
+    "update_report_status": update_report_status,
 }
 
 
@@ -570,9 +827,10 @@ def main():
         choices=ACTION_MAP.keys(),
         help="The action to perform",
     )
-    parser.add_argument("--group_id", help="Personal group ID (for collect_monthly_data)")
-    parser.add_argument("--month", help="Target month YYYY-MM (for collect_monthly_data)")
-    parser.add_argument("--output", help="Output JSON file path (for collect_monthly_data)")
+    parser.add_argument("--group_id", help="Personal group ID")
+    parser.add_argument("--goal_id", help="Goal ID (for collect_goal_data)")
+    parser.add_argument("--month", help="Target month YYYY-MM")
+    parser.add_argument("--output", help="Output JSON file path")
     parser.add_argument("--report_id", help="Report ID (for get_report_content)")
     parser.add_argument("--receiver_emp_id", help="Receiver employee ID (for send_report)")
     parser.add_argument("--title", help="Report title (for send_report)")
@@ -580,6 +838,8 @@ def main():
     parser.add_argument("--sender_id", help=f"Sender system user ID (default: {DEFAULT_SENDER_ID})")
     parser.add_argument("--report_record_id", help="Report record ID from send_report (for save_monthly_report)")
     parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for send_report)")
+    parser.add_argument("--status", help="Generate status: 0=generating, 1=success, 2=failed (for update_report_status)")
+    parser.add_argument("--fail_reason", help="Failure reason (for update_report_status, required when status=2)")
 
     args = parser.parse_args()
 
