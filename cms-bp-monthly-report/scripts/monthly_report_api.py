@@ -67,23 +67,42 @@ def _resolve_sender(receiver_emp_id):
     """
     url = f"{BASE_URL}/cwork-user/employee/getEmployeeOrgInfo"
     headers = {"appKey": APP_KEY}
-    try:
-        resp = requests.get(url, params={"empId": receiver_emp_id}, headers=headers, timeout=TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("resultCode") == 1 and data.get("data"):
-            corp_id = str(data["data"].get("corpId") or "")
-            sender = CORP_ID_TO_SENDER.get(corp_id)
-            if sender:
-                app_key = SENDER_TO_APP_KEY.get(sender, DEFAULT_SEND_APP_KEY)
-                _log(f"Resolved sender: receiver={receiver_emp_id} -> corpId={corp_id} -> sender={sender}")
-                return sender, app_key
-            _log(f"Unknown corpId={corp_id} for receiver={receiver_emp_id}, using default sender={DEFAULT_SENDER_ID}")
-        else:
+
+    for attempt in range(1 + QUERY_MAX_RETRIES):
+        try:
+            resp = requests.get(url, params={"empId": receiver_emp_id}, headers=headers, timeout=TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("resultCode") == 1 and data.get("data"):
+                corp_id = str(data["data"].get("corpId") or "")
+                sender = CORP_ID_TO_SENDER.get(corp_id)
+                if sender:
+                    app_key = SENDER_TO_APP_KEY.get(sender, DEFAULT_SEND_APP_KEY)
+                    _log(f"Resolved sender: receiver={receiver_emp_id} -> corpId={corp_id} -> sender={sender}")
+                    return sender, app_key
+                _log(f"Unknown corpId={corp_id} for receiver={receiver_emp_id}, using default sender={DEFAULT_SENDER_ID}")
+                return DEFAULT_SENDER_ID, DEFAULT_SEND_APP_KEY
+
+            rc = data.get("resultCode")
+            is_retryable = rc in (401, 429) or (isinstance(rc, int) and rc >= 500)
+            if is_retryable and attempt < QUERY_MAX_RETRIES:
+                _log(f"Resolve sender got resultCode={rc}, waiting {QUERY_RETRY_DELAY_SECONDS}s before retry...")
+                time.sleep(QUERY_RETRY_DELAY_SECONDS)
+                continue
+
             _log(f"Failed to get org info for receiver={receiver_emp_id}: {data.get('resultMsg')}, "
                  f"using default sender={DEFAULT_SENDER_ID}")
-    except Exception as e:
-        _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
+        except requests.HTTPError as e:
+            rc = e.response.status_code
+            is_retryable = rc in (401, 429) or rc >= 500
+            if is_retryable and attempt < QUERY_MAX_RETRIES:
+                _log(f"Resolve sender got HTTP {rc}, waiting {QUERY_RETRY_DELAY_SECONDS}s before retry...")
+                time.sleep(QUERY_RETRY_DELAY_SECONDS)
+                continue
+            _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
+        except Exception as e:
+            _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
+
     return DEFAULT_SENDER_ID, DEFAULT_SEND_APP_KEY
 
 
@@ -634,6 +653,7 @@ def send_report(args):
         "contentType": "markdown",
         "comeFrom": "BP-API调用",
         "templateId": 2044631241659035650,
+        "flowType": "merge_template_node",
         "reportLevelList": [
             {
                 "level": 1,
