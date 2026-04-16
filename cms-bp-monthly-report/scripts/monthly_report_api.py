@@ -583,13 +583,13 @@ def send_report(args):
         "main": args.title,
         "contentHtml": content,
         "contentType": "markdown",
-        "templateId": 2042140681165959169,
+        "templateId": 2044631241659035650,
         "reportLevelList": [
             {
                 "level": 1,
                 "levelUserList": [{"empId": args.receiver_emp_id}],
-                "nodeName": "传阅",
-                "type": "read",
+                "nodeName": "建议",
+                "type": "suggest",
             }
         ],
     }
