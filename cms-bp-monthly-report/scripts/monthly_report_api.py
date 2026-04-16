@@ -34,8 +34,6 @@ BASE_URL = os.environ.get(
     "https://sg-al-cwork-web.mediportal.com.cn/open-api",
 )
 APP_KEY = os.environ.get("BP_OPEN_API_APP_KEY", "")
-SEND_REPORT_APP_KEY = "1xmsXv2yv11OVqkd3zb5yG441sO5AB04"
-
 TIMEOUT = 30
 DEFAULT_SENDER_ID = "400002"
 REPORT_CONTENT_MAX_CHARS = 2000
@@ -49,15 +47,23 @@ CORP_ID_TO_SENDER = {
     "1515978849561276500": "400003",
 }
 
+SENDER_TO_APP_KEY = {
+    "400001": "5xmsXv311OVq121d5hzb5yGJ6sO5AB04",
+    "400002": "1xmsXv2yv11OVqkd3zb5yG441sO5AB04",
+    "400003": "5xmsXvVyv11dskd5hzb5ys6ssswqAB04",
+}
+DEFAULT_SEND_APP_KEY = SENDER_TO_APP_KEY[DEFAULT_SENDER_ID]
+
 
 def _log(msg):
     print(f"[progress] {msg}", file=sys.stderr)
 
 
-def _resolve_sender_id(receiver_emp_id):
-    """Look up the receiver's corpId via employee org info API and return the matching sender ID.
+def _resolve_sender(receiver_emp_id):
+    """Look up the receiver's corpId and return (sender_id, app_key).
 
-    Falls back to DEFAULT_SENDER_ID if the lookup fails or corpId is unknown.
+    Each AI assistant (sender) has its own appKey for sending reports.
+    Falls back to DEFAULT_SENDER_ID / DEFAULT_SEND_APP_KEY on failure.
     """
     url = f"{BASE_URL}/cwork-user/employee/getEmployeeOrgInfo"
     headers = {"appKey": APP_KEY}
@@ -69,15 +75,16 @@ def _resolve_sender_id(receiver_emp_id):
             corp_id = str(data["data"].get("corpId") or "")
             sender = CORP_ID_TO_SENDER.get(corp_id)
             if sender:
+                app_key = SENDER_TO_APP_KEY.get(sender, DEFAULT_SEND_APP_KEY)
                 _log(f"Resolved sender: receiver={receiver_emp_id} -> corpId={corp_id} -> sender={sender}")
-                return sender
+                return sender, app_key
             _log(f"Unknown corpId={corp_id} for receiver={receiver_emp_id}, using default sender={DEFAULT_SENDER_ID}")
         else:
             _log(f"Failed to get org info for receiver={receiver_emp_id}: {data.get('resultMsg')}, "
                  f"using default sender={DEFAULT_SENDER_ID}")
     except Exception as e:
         _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
-    return DEFAULT_SENDER_ID
+    return DEFAULT_SENDER_ID, DEFAULT_SEND_APP_KEY
 
 
 def _do_request(method, url, headers, params=None, json_body=None):
@@ -612,8 +619,9 @@ def send_report(args):
     first_receiver = args.receiver_emp_id.split(",")[0].strip()
     if args.sender_id:
         sender_id = args.sender_id
+        send_app_key = SENDER_TO_APP_KEY.get(sender_id, DEFAULT_SEND_APP_KEY)
     else:
-        sender_id = _resolve_sender_id(first_receiver)
+        sender_id, send_app_key = _resolve_sender(first_receiver)
 
     receiver_list = [
         {"empId": rid.strip()}
@@ -641,7 +649,8 @@ def send_report(args):
         body["copyEmpIdList"] = [cid.strip() for cid in copy_ids.split(",") if cid.strip()]
 
     url = f"{BASE_URL}/work-report/report/record/submit"
-    headers = {"appKey": SEND_REPORT_APP_KEY, "Content-Type": "application/json"}
+    headers = {"appKey": send_app_key, "Content-Type": "application/json"}
+    _log(f"Sending with sender={sender_id}, appKey={send_app_key[:8]}...")
 
     try:
         result = _do_send_report(url, headers, body)
@@ -652,14 +661,15 @@ def send_report(args):
     if retry_reason:
         if retry_reason == "emp_id_error":
             _log(f"Got '汇报人ID有误' for empId={args.receiver_emp_id}. "
-                 f"Verifying key is SEND_REPORT_APP_KEY (not BP_OPEN_API_APP_KEY)...")
+                 f"Verifying appKey matches sender={sender_id}...")
         elif retry_reason == "rate_limited":
             _log(f"Got resultCode=401 (rate limited) for empId={args.receiver_emp_id}. "
                  f"Params look correct, treating as rate limit...")
 
-        if headers["appKey"] != SEND_REPORT_APP_KEY:
-            _log("ERROR: wrong key detected, switching to SEND_REPORT_APP_KEY")
-            headers["appKey"] = SEND_REPORT_APP_KEY
+        expected_key = SENDER_TO_APP_KEY.get(sender_id, DEFAULT_SEND_APP_KEY)
+        if headers["appKey"] != expected_key:
+            _log(f"Key mismatch detected, switching to correct key for sender={sender_id}")
+            headers["appKey"] = expected_key
 
         _log(f"Waiting {SEND_RETRY_DELAY_SECONDS}s before retry...")
         time.sleep(SEND_RETRY_DELAY_SECONDS)

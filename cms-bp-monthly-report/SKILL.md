@@ -635,11 +635,15 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 ### 发送与保存约束
 
 - **发送报错重试机制**：以下两种错误脚本会自动等待 60 秒后重试一次（API 按分钟限流）：
-  - **"汇报人ID有误"**：先检查是否使用了内置机器人 key（`SEND_REPORT_APP_KEY`）而非用户的数据查询 key（`BP_OPEN_API_APP_KEY`），确认 key 正确后等待 60 秒再重试
+  - **"汇报人ID有误"**：先检查 appKey 是否与 sender 匹配，确认 key 正确后等待 60 秒再重试
   - **resultCode=401 且参数正确**：视为接口限流，等待 60 秒后重试
 - 发送后必须记录 `data.id` 并生成 `huibao://view?id={data.id}` 链接
-- 发送人根据接收人的企业自动匹配（corpId → sender 映射：`1509805893730611201`→`400001`、`1509805893730611202`→`400002`、`1515978849561276500`→`400003`），若多个接收人则以第一个接收人的企业为准，匹配失败时回退到默认 `400002`。汇报接收人是员工本人（`employeeId`），**不是** `groupId`
-- **查询数据**使用用户提供的 key（`BP_OPEN_API_APP_KEY`），**发送汇报**使用固定的机器人 key `1xmsXv2yv11OVqkd3zb5yG441sO5AB04`（已内置）
+- **发送人和 appKey 根据接收人的企业自动匹配**（corpId → sender + appKey 映射）：
+  - `1509805893730611201` → sender=`400001`，appKey=`5xmsXv311OVq121d5hzb5yGJ6sO5AB04`
+  - `1509805893730611202` → sender=`400002`，appKey=`1xmsXv2yv11OVqkd3zb5yG441sO5AB04`
+  - `1515978849561276500` → sender=`400003`，appKey=`5xmsXvVyv11dskd5hzb5ys6ssswqAB04`
+  - 若多个接收人则以第一个接收人的企业为准，匹配失败时回退到默认 `400002`。汇报接收人是员工本人（`employeeId`），**不是** `groupId`
+- **查询数据**使用用户提供的 key（`BP_OPEN_API_APP_KEY`），**发送汇报**使用与 sender 对应的机器人 key（已内置，自动匹配）
 
 ### 报告（BP自查报告）约束
 
@@ -669,8 +673,9 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `BP_OPEN_API_APP_KEY` | 数据查询用 API 密钥（**必填**） | 无（用户提供） |
-| `SEND_REPORT_APP_KEY` | 发送汇报专用机器人密钥 | `1xmsXv2yv11OVqkd3zb5yG441sO5AB04`（已内置，无需配置） |
 | `BP_OPEN_API_BASE_URL` | API 地址 | `https://sg-al-cwork-web.mediportal.com.cn/open-api` |
+
+> 发送汇报的机器人 appKey 已按 sender（400001/400002/400003）内置在脚本中，根据接收人企业自动匹配，无需配置。
 
 ## 错误处理
 
