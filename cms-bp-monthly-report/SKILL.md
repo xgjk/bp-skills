@@ -504,9 +504,10 @@ for 每个参与自查的目标 (goalIndex = 1, 2, 3, ...):
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py send_report \
   --receiver_emp_id "{employeeId}" \
   --title "{员工姓名} {YYYY年M月} BP自查报告" \
-  --content_file "/tmp/report_selfcheck_{groupId}.md" \
-  --sender_id "400002"
+  --content_file "/tmp/report_selfcheck_{groupId}.md"
 ```
+
+> `--sender_id` 无需手动指定。脚本会自动通过第一个接收人的 empId 查询组织架构获取 corpId，匹配对应企业的 AI 助理（400001/400002/400003）。仅在需要覆盖时才传 `--sender_id`。
 
 记录返回的 `data.id` → 记为 `report_record_id`，生成报告链接：`huibao://view?id={report_record_id}`
 
@@ -637,7 +638,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
   - **"汇报人ID有误"**：先检查是否使用了内置机器人 key（`SEND_REPORT_APP_KEY`）而非用户的数据查询 key（`BP_OPEN_API_APP_KEY`），确认 key 正确后等待 60 秒再重试
   - **resultCode=401 且参数正确**：视为接口限流，等待 60 秒后重试
 - 发送后必须记录 `data.id` 并生成 `huibao://view?id={data.id}` 链接
-- 发送人默认 `400002`，汇报接收人是员工本人（`employeeId`），**不是** `groupId`
+- 发送人根据接收人的企业自动匹配（corpId → sender 映射：`1509805893730611201`→`400001`、`1509805893730611202`→`400002`、`1515978849561276500`→`400003`），若多个接收人则以第一个接收人的企业为准，匹配失败时回退到默认 `400002`。汇报接收人是员工本人（`employeeId`），**不是** `groupId`
 - **查询数据**使用用户提供的 key（`BP_OPEN_API_APP_KEY`），**发送汇报**使用固定的机器人 key `1xmsXv2yv11OVqkd3zb5yG441sO5AB04`（已内置）
 
 ### 报告（BP自查报告）约束

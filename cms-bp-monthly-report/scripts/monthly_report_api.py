@@ -43,9 +43,41 @@ SEND_RETRY_DELAY_SECONDS = 60
 QUERY_RETRY_DELAY_SECONDS = 60
 QUERY_MAX_RETRIES = 1
 
+CORP_ID_TO_SENDER = {
+    "1509805893730611201": "400001",
+    "1509805893730611202": "400002",
+    "1515978849561276500": "400003",
+}
+
 
 def _log(msg):
     print(f"[progress] {msg}", file=sys.stderr)
+
+
+def _resolve_sender_id(receiver_emp_id):
+    """Look up the receiver's corpId via employee org info API and return the matching sender ID.
+
+    Falls back to DEFAULT_SENDER_ID if the lookup fails or corpId is unknown.
+    """
+    url = f"{BASE_URL}/cwork-user/employee/getEmployeeOrgInfo"
+    headers = {"appKey": APP_KEY}
+    try:
+        resp = requests.get(url, params={"empId": receiver_emp_id}, headers=headers, timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("resultCode") == 1 and data.get("data"):
+            corp_id = str(data["data"].get("corpId") or "")
+            sender = CORP_ID_TO_SENDER.get(corp_id)
+            if sender:
+                _log(f"Resolved sender: receiver={receiver_emp_id} -> corpId={corp_id} -> sender={sender}")
+                return sender
+            _log(f"Unknown corpId={corp_id} for receiver={receiver_emp_id}, using default sender={DEFAULT_SENDER_ID}")
+        else:
+            _log(f"Failed to get org info for receiver={receiver_emp_id}: {data.get('resultMsg')}, "
+                 f"using default sender={DEFAULT_SENDER_ID}")
+    except Exception as e:
+        _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
+    return DEFAULT_SENDER_ID
 
 
 def _do_request(method, url, headers, params=None, json_body=None):
@@ -577,17 +609,27 @@ def send_report(args):
     if not content.strip():
         return {"error": "Content file is empty"}
 
-    sender_id = args.sender_id or DEFAULT_SENDER_ID
+    first_receiver = args.receiver_emp_id.split(",")[0].strip()
+    if args.sender_id:
+        sender_id = args.sender_id
+    else:
+        sender_id = _resolve_sender_id(first_receiver)
+
+    receiver_list = [
+        {"empId": rid.strip()}
+        for rid in args.receiver_emp_id.split(",") if rid.strip()
+    ]
 
     body = {
         "main": args.title,
         "contentHtml": content,
         "contentType": "markdown",
+        "comeFrom": "BP-API调用",
         "templateId": 2044631241659035650,
         "reportLevelList": [
             {
                 "level": 1,
-                "levelUserList": [{"empId": args.receiver_emp_id}],
+                "levelUserList": receiver_list,
                 "nodeName": "建议",
                 "type": "suggest",
             }
