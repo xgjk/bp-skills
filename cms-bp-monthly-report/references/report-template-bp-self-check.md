@@ -63,13 +63,15 @@
 
 ```
 - <span style="color:#b26a00; font-weight:700;">四灯判断：🟡</span>
-  <span style="color:#b26a00; font-weight:700;">判断理由：[AI 填写判断理由]</span>
+<span style="color:#b26a00; font-weight:700;">判断理由：[AI 填写判断理由]</span>
+<div class="people-suggest">
   <span style="color:#b26a00; font-weight:700;">人工判断：待确认（请填写：同意 / 不同意）</span>
   <span style="color:#b26a00; font-weight:700;">若同意：请明确填写"同意"。</span>
   <span style="color:#b26a00; font-weight:700;">若不同意：请填写理由类别（BP不清晰 / 举证材料不足 / AI判断错误 / 其他）及具体说明。</span>
   <span style="color:#b26a00; font-weight:700;">整改方案：待补充</span>
   <span style="color:#b26a00; font-weight:700;">承诺完成时间：待补充</span>
   <span style="color:#b26a00; font-weight:700;">下周期具体举措：待补充</span>
+</div>
 ```
 
 **红灯判断块**：同黄灯结构，色值替换为 `#c62828`。
