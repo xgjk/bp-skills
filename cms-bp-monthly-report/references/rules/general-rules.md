@@ -16,7 +16,7 @@
 
 ## 发送与重试规则
 
-- 发送报错重试：脚本对"汇报人ID有误"和 `resultCode=401` 自动等待 60 秒后重试一次
+- 发送报错重试：脚本对"汇报人ID有误"、 `resultCode=401` 、接口报错等自动等待 60 秒后重试一次
 - 发送人和 appKey 根据接收人企业自动匹配（corpId → sender + appKey 映射已内置在脚本中），查询数据使用用户提供的 key（`BP_OPEN_API_APP_KEY`），发送汇报使用与 sender 对应的机器人 key
 
 ---
