@@ -227,6 +227,14 @@
 
 ---
 
+### 4. 月度汇报入口
+
+<!-- 严格按以下格式输出，仅包含一个链接，不得添加自我定性、结论解释或任何额外文字 -->
+
+[点击进入查看系统月度汇报](https://sg-cwork-web.mediportal.com.cn/BP-manager/web/dist/#/MonthlyReportDashboard?groupId={groupId})
+
+---
+
 ### 附录：证据索引
 
 <!-- 从证据台账文件原样搬入，禁止手动补写或删减 -->

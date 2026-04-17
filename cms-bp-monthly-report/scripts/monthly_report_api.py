@@ -404,7 +404,7 @@ def collect_goal_data(args):
 
     output = {
         "goalId": args.goal_id,
-        "groupId": getattr(args, "group_id", None) or "",
+        "groupId": group_id,
         "month": args.month,
         "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "goalDetail": goal_detail,
@@ -420,7 +420,8 @@ def collect_goal_data(args):
     if errors:
         output["errors"] = errors
 
-    output_path = args.output or f"/tmp/goal_data_{args.goal_id}.json"
+    group_id = getattr(args, "group_id", None) or ""
+    output_path = args.output or f"/tmp/goal_data_{group_id}_{args.goal_id}.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 

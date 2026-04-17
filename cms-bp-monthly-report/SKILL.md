@@ -22,12 +22,14 @@ references/
     step2-collect.md               -- Step 2 详细操作
     step3-generate.md              -- Step 3 详细操作
     step4-send.md                  -- Step 4 详细操作 + 工具速查表
-  rules/                           -- 判断规则与校验约束（Step 3 加载）
+  rules/                           -- 判断规则与校验约束
+    general-rules.md               -- 通用约束（流程启动时加载）
     traffic-light-rules.md         -- 灯色判断规则与排除规则
     evidence-rules.md              -- 证据去重、分级、归集与链接规则
     validation-rules.md            -- 合规校验、语言清洗与附录搬运
   templates/                       -- 报告模板（Step 3 加载）
     report-template-bp-self-check.md -- 报告模板与输出格式定义
+  api-reference.md                 -- 工具脚本速查表与环境配置
   workflow-details.md              -- 流程索引页（指向 workflow/ 下各文件）
   changelog.md                     -- 变更记录（仅维护参考，无需加载）
 scripts/
@@ -82,6 +84,8 @@ scripts/
 
 **禁止一步生成整篇报告。** 必须按以下步骤顺序执行，每步完成后输出进度确认。
 
+**全局前置加载**：读取 [references/rules/general-rules.md](references/rules/general-rules.md)，贯穿 Step 1 – Step 4 的通用约束。
+
 ### Step 1: 确定目标员工与月份
 
 **前置加载**：读取 [references/workflow/step1-identify.md](references/workflow/step1-identify.md)
@@ -118,8 +122,8 @@ scripts/
 
 1. **3a**: 构建 BP 锚点图 → 产出 `/tmp/bp_anchor_{groupId}.md`
 2. **3b**: 构建证据台账 + R/RP 编号分配（严格按 evidence-rules.md） → 产出 `/tmp/evidence_ledger_{groupId}.md`
-3. **3c**: 目标级排除判断 + 逐目标循环（精读→判灯→组装） → 产出 `/tmp/goal_cards_{groupId}_{N}.md` + `/tmp/goal_section_{groupId}_{N}.md`
-4. **3d**: 读取 [references/rules/validation-rules.md](references/rules/validation-rules.md)，拼接全局报告 + 语言清洗 + 15项合规校验 → 产出 `/tmp/report_selfcheck_{groupId}.md`
+3. **3c**: 目标级排除判断 + 逐目标循环（精读→判灯→组装） → 产出 `/tmp/excluded_goals_{groupId}.md` + `/tmp/goal_cards_{groupId}_{N}.md` + `/tmp/goal_section_{groupId}_{N}.md`
+4. **3d**: 读取 [references/rules/validation-rules.md](references/rules/validation-rules.md)，拼接全局报告（含第 1–4 章 + 附录） + 语言清洗 + 16 项合规校验 → 产出 `/tmp/report_selfcheck_{groupId}.md`
 
 **完成后输出**：`✅ Step 3 完成 — 报告已生成并通过合规校验`
 

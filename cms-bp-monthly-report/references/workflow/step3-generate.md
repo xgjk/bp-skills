@@ -195,7 +195,8 @@
 2. **第 1 章 总体自查结论**：1.1 结论 + 1.2 灯色分布概览 + 1.3 偏差点
 3. **第 2 章 目标级自查明细**：2.1 总览表（7 列，含排除目标）+ 2.2 目标明细（从各章节文件拼接）
 4. **第 3 章 年度结果预判评分**：仅输出一个链接 `[点击进入本月：年度结果预判评分](https://sg-al-cwork-web.mediportal.com.cn/BP-manager/web/dist/#/monthly-review/self?groupId={groupId}&month={month})`
-5. **附录**：从 `/tmp/evidence_ledger_{groupId}.md` 直接读取原样搬入 A.1 + A.2 + A.3
+5. **第 4 章 月度汇报入口**：仅输出一个链接 `[点击进入查看系统月度汇报](https://sg-cwork-web.mediportal.com.cn/BP-manager/web/dist/#/MonthlyReportDashboard?groupId={groupId})`
+6. **附录**：从 `/tmp/evidence_ledger_{groupId}.md` 直接读取原样搬入 A.1 + A.2 + A.3
 
 ### (iii) 语言清洗
 

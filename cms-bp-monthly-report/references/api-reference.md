@@ -17,7 +17,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 | action | 说明 | 必填参数 | 可选参数 |
 |--------|------|----------|----------|
 | `collect_monthly_overview` | 采集全局概览（Step 2a-i） | `--group_id`、`--month` | `--output` |
-| `collect_goal_data` | 按目标采集详情+汇报原文（Step 2a-ii） | `--goal_id`、`--month` | `--group_id`、`--output` |
+| `collect_goal_data` | 按目标采集详情+汇报原文（Step 2a-ii） | `--group_id`、`--goal_id`、`--month` | `--output` |
 | `collect_monthly_data` | [旧版] 一次性采集全量数据到单个 JSON | `--group_id`、`--month` | `--output` |
 | `collect_previous_month_data` | 采集上月汇报+评价作为参考基线 | `--group_id`、`--month`（上月YYYY-MM） | `--output` |
 | `get_report_content` | 获取单条汇报正文内容 | `--report_id` | 无 |
