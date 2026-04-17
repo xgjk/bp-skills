@@ -339,28 +339,35 @@ def collect_goal_data(args):
 
     task_report_ids = {}
     all_report_ids = set()
+    page_size = 200
     for i, tid in enumerate(node_ids, 1):
-        body = {
-            "taskId": tid,
-            "pageIndex": 1,
-            "pageSize": 200,
-            "businessTimeStart": time_start,
-            "businessTimeEnd": time_end,
-        }
-        result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
-        if result.get("success"):
-            records = result["data"].get("list") or []
-            biz_ids = []
-            for rec in records:
-                bid = rec.get("bizId")
-                if bid:
-                    bid_str = str(bid)
-                    biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
-                    all_report_ids.add(bid_str)
-            if biz_ids:
-                task_report_ids[tid] = biz_ids
-        else:
-            errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
+        page_index = 1
+        tid_biz_ids = []
+        while True:
+            body = {
+                "taskId": tid,
+                "pageIndex": page_index,
+                "pageSize": page_size,
+                "businessTimeStart": time_start,
+                "businessTimeEnd": time_end,
+            }
+            result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
+            if result.get("success"):
+                records = result["data"].get("list") or []
+                for rec in records:
+                    bid = rec.get("bizId")
+                    if bid:
+                        bid_str = str(bid)
+                        tid_biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
+                        all_report_ids.add(bid_str)
+                if len(records) < page_size:
+                    break
+                page_index += 1
+            else:
+                errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
+                break
+        if tid_biz_ids:
+            task_report_ids[tid] = tid_biz_ids
 
     _log(f"Found {len(all_report_ids)} unique reports across {len(task_report_ids)} nodes")
 
@@ -467,31 +474,38 @@ def collect_monthly_data(args):
     _log(f"Querying reports for {len(all_ids)} task nodes...")
     task_report_ids = {}
     all_report_ids = set()
+    page_size = 200
 
     for i, tid in enumerate(all_ids, 1):
         if i % 10 == 0 or i == len(all_ids):
             _log(f"  reports query {i}/{len(all_ids)}")
-        body = {
-            "taskId": tid,
-            "pageIndex": 1,
-            "pageSize": 200,
-            "businessTimeStart": time_start,
-            "businessTimeEnd": time_end,
-        }
-        result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
-        if result.get("success"):
-            records = result["data"].get("list") or []
-            biz_ids = []
-            for rec in records:
-                bid = rec.get("bizId")
-                if bid:
-                    bid_str = str(bid)
-                    biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
-                    all_report_ids.add(bid_str)
-            if biz_ids:
-                task_report_ids[tid] = biz_ids
-        else:
-            errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
+        page_index = 1
+        tid_biz_ids = []
+        while True:
+            body = {
+                "taskId": tid,
+                "pageIndex": page_index,
+                "pageSize": page_size,
+                "businessTimeStart": time_start,
+                "businessTimeEnd": time_end,
+            }
+            result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
+            if result.get("success"):
+                records = result["data"].get("list") or []
+                for rec in records:
+                    bid = rec.get("bizId")
+                    if bid:
+                        bid_str = str(bid)
+                        tid_biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
+                        all_report_ids.add(bid_str)
+                if len(records) < page_size:
+                    break
+                page_index += 1
+            else:
+                errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
+                break
+        if tid_biz_ids:
+            task_report_ids[tid] = tid_biz_ids
 
     _log(f"Found {len(all_report_ids)} unique reports across {len(task_report_ids)} tasks")
 
@@ -738,10 +752,10 @@ def save_monthly_report(args):
         return {"error": "BP_OPEN_API_APP_KEY is not configured. Required for save_monthly_report."}
 
     body = {
-        "groupId": int(args.group_id),
+        "groupId": args.group_id,
         "reportContent": content,
         "reportMonth": args.month,
-        "reportRecordId": int(args.report_record_id),
+        "reportRecordId": args.report_record_id,
     }
 
     _log(f"Saving monthly report: groupId={args.group_id}, month={args.month}")
@@ -775,7 +789,7 @@ def update_report_status(args):
         return {"error": "fail_reason is required when status=2 (failed)"}
 
     body = {
-        "groupId": int(args.group_id),
+        "groupId": args.group_id,
         "reportMonth": args.month,
         "generateStatus": status_val,
     }
@@ -834,7 +848,7 @@ def collect_previous_month_data(args):
                 "reportTypeDesc": type_desc,
                 "reportRecordId": str(rid),
                 "title": rd.get("main", ""),
-                "content": _truncate(content_html),
+                "content": content_html,
                 "createTime": rd.get("createTime"),
             })
         else:
