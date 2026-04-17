@@ -402,6 +402,8 @@ def collect_goal_data(args):
         if task_reports:
             reports_by_task[tid] = task_reports
 
+    group_id = getattr(args, "group_id", None) or ""
+
     output = {
         "goalId": args.goal_id,
         "groupId": group_id,
@@ -420,7 +422,6 @@ def collect_goal_data(args):
     if errors:
         output["errors"] = errors
 
-    group_id = getattr(args, "group_id", None) or ""
     output_path = args.output or f"/tmp/goal_data_{group_id}_{args.goal_id}.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
