@@ -131,6 +131,6 @@ scripts/
 
 **前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md)
 
-校验通过后直接保存草稿（`save_draft`），记录 `report_record_id`，再保存到 BP 系统（`save_monthly_report`）。`save_monthly_report` 保存成功后自动将 `generateStatus` 置为 `1=成功`，无需再单独调用 `update_report_status`。失败时调用 `update_report_status --status 2`。
+校验通过后先调用 `save_draft`，**立即从其返回的 `report_record_id` 字段记录 ID**（这是工作汇报草稿 ID），再调用 `save_monthly_report` 保存到 BP 系统。**注意：`save_monthly_report` 返回的 `data` 是 BP 月报 ID，与 `report_record_id` 是不同的 ID，严禁混淆。** `save_monthly_report` 保存成功后自动将 `generateStatus` 置为 `1=成功`，无需再单独调用 `update_report_status`。失败时调用 `update_report_status --status 2`。
 
-**完成后输出**：`✅ Step 4 完成 — 报告已发送并保存，report_record_id={值}`
+**完成后输出**：`✅ Step 4 完成 — 报告已发送并保存，report_record_id={save_draft返回的ID}`

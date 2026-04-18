@@ -911,7 +911,15 @@ def save_draft(args):
             return {"error": f"Network error on retry: {exc}"}
 
     if result.get("success"):
-        _log(f"Draft saved successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}")
+        raw_data = result.get("data")
+        if isinstance(raw_data, dict):
+            report_record_id = str(raw_data.get("id", ""))
+        else:
+            report_record_id = str(raw_data) if raw_data else ""
+
+        result["report_record_id"] = report_record_id
+        _log(f"Draft saved successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}, "
+             f"report_record_id: {report_record_id}")
 
     return result
 
@@ -956,8 +964,10 @@ def save_monthly_report(args):
     result = _request("POST", "/bp/monthly/report/save", json_body=body)
 
     if result.get("success"):
+        result["report_record_id"] = args.report_record_id
         _log(f"Monthly report saved. groupId: {args.group_id}, month: {args.month}, "
-             f"reportId: {result['data']}")
+             f"bp_report_id(BP系统月报ID): {result['data']}, "
+             f"report_record_id(工作汇报草稿ID,用于生成链接): {args.report_record_id}")
 
     return result
 
