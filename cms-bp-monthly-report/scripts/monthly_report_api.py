@@ -676,7 +676,13 @@ def save_draft(args):
                 "levelUserList": receiver_list,
                 "nodeName": "建议",
                 "type": "suggest",
-            }
+            },
+            {
+                 "level": 2,
+                 "levelUserList": receiver_list,
+                 "nodeName": "建议",
+                 "type": "suggest",
+             }
         ],
     }
 
