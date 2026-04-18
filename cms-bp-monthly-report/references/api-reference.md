@@ -33,8 +33,5 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 |--------|------|--------|
 | `BP_OPEN_API_APP_KEY` | 数据查询用 API 密钥（**必填**） | 无（用户提供） |
 | `BP_OPEN_API_BASE_URL` | API 地址 | `https://sg-al-cwork-web.mediportal.com.cn/open-api` |
-| `BP_SEND_APP_KEY_400001` | sender 400001 的发送 appKey（**必填**） | 无（运维配置） |
-| `BP_SEND_APP_KEY_400002` | sender 400002 的发送 appKey（**必填**） | 无（运维配置） |
-| `BP_SEND_APP_KEY_400003` | sender 400003 的发送 appKey（**必填**） | 无（运维配置） |
 
-> 发送汇报的机器人 appKey 通过环境变量 `BP_SEND_APP_KEY_{senderId}` 注入，根据接收人企业自动匹配对应 sender。
+> 发送汇报的机器人 appKey 已按 sender（400001/400002/400003）内置在脚本中，根据接收人企业自动匹配，无需配置。
