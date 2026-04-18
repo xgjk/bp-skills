@@ -266,9 +266,22 @@ def _strip_html(html):
 CONTENT_PREVIEW_CHARS = 300
 
 
+def _build_reply(reply):
+    """Build a slim reply dict from raw API reply object."""
+    return {
+        "replyId": str(reply.get("replyId") or ""),
+        "content": _strip_html(reply.get("contentHtml") or reply.get("content") or ""),
+        "replyEmpId": reply.get("replyEmpId"),
+        "replyEmpName": reply.get("replyEmpName"),
+        "createTime": reply.get("createTime"),
+    }
+
+
 def _build_report_content(rd, truncate=True):
     """Build a report content dict from raw API response."""
     content_html = rd.get("contentHtml") or rd.get("content") or ""
+    raw_replies = rd.get("replies") or []
+    replies = [_build_reply(r) for r in raw_replies]
     return {
         "reportId": str(rd.get("id") or rd.get("reportId") or ""),
         "title": rd.get("main", ""),
@@ -277,6 +290,7 @@ def _build_report_content(rd, truncate=True):
         "createTime": rd.get("createTime"),
         "authorEmpId": rd.get("writeEmpId") or rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
         "authorName": rd.get("writeEmpName") or rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
+        "replies": replies,
     }
 
 
@@ -512,6 +526,7 @@ def collect_goal_data(args):
                 "authorEmpId": rc.get("authorEmpId", ""),
                 "authorName": rc.get("authorName", ""),
                 "createTime": rc.get("createTime"),
+                "replies": rc.get("replies", []),
             }
             with open(report_path, "w", encoding="utf-8") as f:
                 json.dump(file_content, f, ensure_ascii=False, indent=2)
@@ -529,6 +544,7 @@ def collect_goal_data(args):
                 related_nodes.append({"taskId": tid, "name": "", "fullLevelNumber": "", "nodeType": ""})
 
         plain_text = _strip_html(rc.get("content", ""))
+        replies = rc.get("replies", [])
         report_index[rid] = {
             "reportId": rid,
             "title": rc.get("title", ""),
@@ -537,6 +553,8 @@ def collect_goal_data(args):
             "createTime": rc.get("createTime"),
             "charCount": len(plain_text),
             "contentPreview": plain_text[:CONTENT_PREVIEW_CHARS],
+            "replyCount": len(replies),
+            "replies": replies,
             "relatedNodes": related_nodes,
         }
 
@@ -784,6 +802,7 @@ def get_report_text(args):
             "authorEmpId": rc.get("authorEmpId", ""),
             "authorName": rc.get("authorName", ""),
             "createTime": rc.get("createTime"),
+            "replies": rc.get("replies", []),
         }
     return result
 
