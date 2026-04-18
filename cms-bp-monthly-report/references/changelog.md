@@ -51,7 +51,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| **现象** | `_request` 函数遇到 401/429/5xx 时直接返回错误，而 `send_report` 有独立的 retry 逻辑 |
+| **现象** | `_request` 函数遇到 401/429/5xx 时直接返回错误，而 `save_draft` 有独立的 retry 逻辑 |
 | **影响** | 数据采集阶段遇到瞬时限流或服务端错误会直接失败，需要人工重跑 |
 | **修复** | 重构 `_request`：拆出 `_do_request` 执行单次请求，`_request` 添加 retry 循环，对 401/429/5xx 等待 60 秒后重试一次 |
 | **预防** | 所有数据查询统一走 `_request`，retry 策略集中管理 |
@@ -95,7 +95,7 @@
 ### 3. 网络调用统一
 
 - 所有 API 调用（查询和写入）统一通过 `_request` 包装
-- 禁止在业务函数中直接 `requests.get/post`（`send_report` 因需使用不同 APP_KEY 除外）
+- 禁止在业务函数中直接 `requests.get/post`（`save_draft` 因需使用不同 APP_KEY 除外）
 - retry 策略集中在 `_request` 管理
 
 ### 4. 测试验证

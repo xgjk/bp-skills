@@ -1,15 +1,15 @@
-# Step 4: 发送 → 保存
+# Step 4: 保存草稿 → 保存
 
 > 本文件为强制约束。AI 执行 Step 4 时必须严格遵守。
 
 ---
 
-## 发送报告
+## 保存汇报草稿
 
-**校验通过后直接发送**，无需等待用户确认。
+**校验通过后直接保存草稿**，无需等待用户确认。
 
 ```bash
-python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py send_report \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_draft \
   --receiver_emp_id "{employeeId}" \
   --title "{员工姓名} {YYYY年M月} BP自查报告" \
   --content_file "/tmp/report_selfcheck_{groupId}.md"
@@ -19,6 +19,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py send_re
 
 > `--sender_id` 无需手动指定。脚本自动通过接收人的 empId 查询组织架构获取 corpId，匹配对应企业的 AI 助理。
 
+> `save_draft` 仅将汇报保存为草稿状态，不会正式发出。如需正式发出，需后续调用草稿提交接口（`POST /work-report/draftBox/submit/{id}`）。
 
 记录返回的 `data.id` → 记为 `report_record_id`，生成报告链接：`huibao://view?id={report_record_id}`
 

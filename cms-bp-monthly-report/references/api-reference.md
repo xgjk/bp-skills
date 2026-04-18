@@ -21,7 +21,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 | `collect_monthly_data` | [旧版] 一次性采集全量数据到单个 JSON | `--group_id`、`--month` | `--output` |
 | `collect_previous_month_data` | 采集上月汇报+评价作为参考基线 | `--group_id`、`--month`（上月YYYY-MM） | `--output` |
 | `get_report_content` | 获取单条汇报正文内容 | `--report_id` | 无 |
-| `send_report` | 发送报告（工作协同） | `--receiver_emp_id`、`--title`、`--content_file` | `--sender_id` |
+| `save_draft` | 保存汇报草稿（工作协同） | `--receiver_emp_id`、`--title`、`--content_file` | `--sender_id` |
 | `save_monthly_report` | 保存月报到 BP 系统 | `--group_id`、`--month`、`--content_file`、`--report_record_id` | 无 |
 | `update_report_status` | 更新月报生成状态（0=生成中, 1=成功, 2=失败） | `--group_id`、`--month`、`--status` | `--fail_reason`（status=2 时必填） |
 

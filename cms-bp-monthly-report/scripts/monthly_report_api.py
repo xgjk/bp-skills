@@ -10,7 +10,7 @@ Actions:
     collect_monthly_data        [Legacy] Aggregate all BP data + reports into a single JSON
     collect_previous_month_data Aggregate previous month's reports + evaluations as reference context
     get_report_content          Get report body content by report ID
-    send_report                 Send monthly report via work-report API
+    save_draft                  Save monthly report as draft via draftBox API
     save_monthly_report         Save monthly report to BP system (2.22 saveMonthlyReport)
     update_report_status        Update monthly report generation status (0=generating, 1=success, 2=failed)
 
@@ -602,8 +602,8 @@ def get_report_content(args):
     return _request("GET", "/work-report/report/info", params={"reportId": args.report_id})
 
 
-def _do_send_report(url, headers, body):
-    """Execute the actual HTTP POST for send_report."""
+def _do_save_draft(url, headers, body):
+    """Execute the actual HTTP POST for save_draft."""
     resp = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
@@ -617,8 +617,8 @@ def _is_rate_limited(result):
     return result.get("resultCode") == 401
 
 
-def _should_retry_send(result):
-    """Determine if send_report should retry based on error type."""
+def _should_retry(result):
+    """Determine if save_draft should retry based on error type."""
     error_msg = str(result.get("error", ""))
     if "汇报人ID有误" in error_msg:
         return "emp_id_error"
@@ -627,19 +627,19 @@ def _should_retry_send(result):
     return None
 
 
-def send_report(args):
-    """POST /work-report/report/record/submit — send monthly report.
+def save_draft(args):
+    """POST /work-report/draftBox/saveOrUpdate — save monthly report as draft.
 
-    Uses the built-in SEND_REPORT_APP_KEY (robot key), NOT the user's
-    BP_OPEN_API_APP_KEY. Retryable errors (rate limit 401, "汇报人ID有误"):
+    Uses the built-in robot app key, NOT the user's BP_OPEN_API_APP_KEY.
+    Retryable errors (rate limit 401, "汇报人ID有误"):
     verify key, wait 60s, retry once.
     """
     if not args.receiver_emp_id:
-        return {"error": "receiver_emp_id is required for send_report"}
+        return {"error": "receiver_emp_id is required for save_draft"}
     if not args.title:
-        return {"error": "title is required for send_report"}
+        return {"error": "title is required for save_draft"}
     if not args.content_file:
-        return {"error": "content_file is required for send_report"}
+        return {"error": "content_file is required for save_draft"}
 
     content_path = args.content_file
     if not os.path.isfile(content_path):
@@ -684,16 +684,16 @@ def send_report(args):
     if copy_ids:
         body["copyEmpIdList"] = [cid.strip() for cid in copy_ids.split(",") if cid.strip()]
 
-    url = f"{BASE_URL}/work-report/report/record/submit"
+    url = f"{BASE_URL}/work-report/draftBox/saveOrUpdate"
     headers = {"appKey": send_app_key, "Content-Type": "application/json"}
-    _log(f"Sending with sender={sender_id}, appKey={send_app_key[:8]}...")
+    _log(f"Saving draft with sender={sender_id}, appKey={send_app_key[:8]}...")
 
     try:
-        result = _do_send_report(url, headers, body)
+        result = _do_save_draft(url, headers, body)
     except requests.RequestException as exc:
         return {"error": f"Network error: {exc}"}
 
-    retry_reason = _should_retry_send(result) if result.get("error") else None
+    retry_reason = _should_retry(result) if result.get("error") else None
     if retry_reason:
         if retry_reason == "emp_id_error":
             _log(f"Got '汇报人ID有误' for empId={args.receiver_emp_id}. "
@@ -710,7 +710,7 @@ def send_report(args):
         _log(f"Waiting {SEND_RETRY_DELAY_SECONDS}s before retry...")
         time.sleep(SEND_RETRY_DELAY_SECONDS)
         try:
-            result = _do_send_report(url, headers, body)
+            result = _do_save_draft(url, headers, body)
             if result.get("success"):
                 _log("Retry succeeded.")
             else:
@@ -719,7 +719,7 @@ def send_report(args):
             return {"error": f"Network error on retry: {exc}"}
 
     if result.get("success"):
-        _log(f"Report sent successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}")
+        _log(f"Draft saved successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}")
 
     return result
 
@@ -727,9 +727,9 @@ def send_report(args):
 def save_monthly_report(args):
     """POST /bp/monthly/report/save — persist report to BP system.
 
-    Uses the data-query APP_KEY (not the send-report robot key),
+    Uses the data-query APP_KEY (not the robot key),
     because the BP monthly report save API requires user-level permission.
-    reportRecordId is required — pass the id returned by send_report.
+    reportRecordId is required — pass the id returned by save_draft.
     """
     if not args.group_id:
         return {"error": "group_id is required for save_monthly_report"}
@@ -738,7 +738,7 @@ def save_monthly_report(args):
     if not args.content_file:
         return {"error": "content_file is required for save_monthly_report"}
     if not getattr(args, "report_record_id", None):
-        return {"error": "report_record_id is required for save_monthly_report (pass the id returned by send_report)"}
+        return {"error": "report_record_id is required for save_monthly_report (pass the id returned by save_draft)"}
 
     content_path = args.content_file
     if not os.path.isfile(content_path):
@@ -900,7 +900,7 @@ ACTION_MAP = {
     "collect_monthly_data": collect_monthly_data,
     "collect_previous_month_data": collect_previous_month_data,
     "get_report_content": get_report_content,
-    "send_report": send_report,
+    "save_draft": save_draft,
     "save_monthly_report": save_monthly_report,
     "update_report_status": update_report_status,
 }
@@ -920,12 +920,12 @@ def main():
     parser.add_argument("--month", help="Target month YYYY-MM")
     parser.add_argument("--output", help="Output JSON file path")
     parser.add_argument("--report_id", help="Report ID (for get_report_content)")
-    parser.add_argument("--receiver_emp_id", help="Receiver employee ID (for send_report)")
-    parser.add_argument("--title", help="Report title (for send_report)")
-    parser.add_argument("--content_file", help="Path to markdown content file (for send_report)")
+    parser.add_argument("--receiver_emp_id", help="Receiver employee ID (for save_draft)")
+    parser.add_argument("--title", help="Report title (for save_draft)")
+    parser.add_argument("--content_file", help="Path to markdown content file (for save_draft)")
     parser.add_argument("--sender_id", help=f"Sender system user ID (default: {DEFAULT_SENDER_ID})")
-    parser.add_argument("--report_record_id", help="Report record ID from send_report (for save_monthly_report)")
-    parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for send_report)")
+    parser.add_argument("--report_record_id", help="Report record ID from save_draft (for save_monthly_report)")
+    parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for save_draft)")
     parser.add_argument("--status", help="Generate status: 0=generating, 1=success, 2=failed (for update_report_status)")
     parser.add_argument("--fail_reason", help="Failure reason (for update_report_status, required when status=2)")
 

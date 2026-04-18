@@ -47,7 +47,7 @@ scripts/
 
 1. 禁止一步生成整篇报告，必须走 Step 1 → 1.5 → 2 → 3 → 4 的分步流程
 2. 禁止对任何 ID 参数做数值转换（parseInt/Number），保持字符串原样
-3. 禁止在校验通过前调用 `send_report`
+3. 禁止在校验通过前调用 `save_draft`
 4. 禁止伪造 R 编号、RP 编号、汇报链接或任何数据
 5. 禁止跳过参考文档加载直接执行 Step 3
 6. 禁止在最终报告中输出内部流程步骤编号（Step 3a/3b 等）或模板括号注释
@@ -131,6 +131,6 @@ scripts/
 
 **前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md)
 
-校验通过后直接发送（`send_report`），记录 `report_record_id`，再保存到 BP 系统（`save_monthly_report`）。失败时调用 `update_report_status --status 2`。
+校验通过后直接保存草稿（`save_draft`），记录 `report_record_id`，再保存到 BP 系统（`save_monthly_report`）。失败时调用 `update_report_status --status 2`。
 
 **完成后输出**：`✅ Step 4 完成 — 报告已发送并保存，report_record_id={值}`
