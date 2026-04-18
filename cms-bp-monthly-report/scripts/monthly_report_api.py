@@ -6,10 +6,11 @@ Usage:
 
 Actions:
     collect_monthly_overview    Fetch task tree + goal list (lightweight, per-goal workflow step 1)
-    collect_goal_data           Collect BP detail + reports for a single goal (per-goal workflow step 2)
-    collect_monthly_data        [Legacy] Aggregate all BP data + reports into a single JSON
+    collect_goal_data           Collect BP detail + report index for a single goal (lightweight JSON + full text in report pool)
+    collect_monthly_data        [Legacy] Aggregate all BP data + reports into a single JSON (new flow must not use)
     collect_previous_month_data Aggregate previous month's reports + evaluations as reference context
-    get_report_content          Get report body content by report ID
+    get_report_content          Get raw report body from API by report ID
+    get_report_text             Read a single report's plain-text content from local report pool (or fallback to API)
     save_draft                  Save monthly report as draft via draftBox API
     save_monthly_report         Save monthly report to BP system (2.22 saveMonthlyReport)
     update_report_status        Update monthly report generation status (0=generating, 1=success, 2=failed)
@@ -23,6 +24,7 @@ import argparse
 import calendar
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -252,6 +254,18 @@ def _extract_ids_from_goal_detail(goal_detail):
     return ids
 
 
+def _strip_html(html):
+    """Strip HTML tags and convert to plain text. <br> becomes newline."""
+    if not html:
+        return ""
+    text = re.sub(r'<br\s*/?>', '\n', html)
+    text = re.sub(r'<[^>]+>', '', text)
+    return text.strip()
+
+
+CONTENT_PREVIEW_CHARS = 300
+
+
 def _build_report_content(rd, truncate=True):
     """Build a report content dict from raw API response."""
     content_html = rd.get("contentHtml") or rd.get("content") or ""
@@ -264,6 +278,91 @@ def _build_report_content(rd, truncate=True):
         "authorEmpId": rd.get("writeEmpId") or rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
         "authorName": rd.get("writeEmpName") or rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
     }
+
+
+# ─── Goal detail slimming ─────────────────────────────────────────
+
+_GOAL_DETAIL_FIELDS = (
+    "id", "name", "fullLevelNumber", "type",
+    "planDateRange", "statusDesc", "measureStandard",
+    "supervisorEmpName", "acceptorEmpName",
+)
+
+_KR_FIELDS = (
+    "id", "name", "fullLevelNumber", "type",
+    "planDateRange", "statusDesc", "measureStandard",
+    "supervisorEmpName", "acceptorEmpName",
+)
+
+_ACTION_FIELDS = (
+    "id", "name", "fullLevelNumber", "type",
+    "planDateRange", "statusDesc",
+    "supervisorEmpName", "acceptorEmpName",
+)
+
+
+def _slim_action(action):
+    """Keep only fields needed for lamp judgment on an action node."""
+    if not action:
+        return action
+    return {k: action[k] for k in _ACTION_FIELDS if k in action}
+
+
+def _slim_kr(kr):
+    """Keep only fields needed for gap analysis on a KR node."""
+    if not kr:
+        return kr
+    slim = {k: kr[k] for k in _KR_FIELDS if k in kr}
+    ms = slim.get("measureStandard", "")
+    if ms:
+        slim["measureStandard"] = _strip_html(ms)
+    action_list = kr.get("actionList") or kr.get("actions") or []
+    slim["actionList"] = [_slim_action(a) for a in action_list]
+    return slim
+
+
+def _slim_goal_detail(detail):
+    """Keep only fields needed for lamp judgment, strip HTML from measureStandard."""
+    if not detail:
+        return detail
+    slim = {k: detail[k] for k in _GOAL_DETAIL_FIELDS if k in detail}
+    ms = slim.get("measureStandard", "")
+    if ms:
+        slim["measureStandard"] = _strip_html(ms)
+    kr_list = detail.get("keyResultList") or detail.get("keyResults") or []
+    slim["keyResultList"] = [_slim_kr(kr) for kr in kr_list]
+    return slim
+
+
+def _build_node_lookup(goal_detail):
+    """Build taskId -> {name, fullLevelNumber, nodeType} lookup from goalDetail tree."""
+    lookup = {}
+    if not goal_detail:
+        return lookup
+    gid = str(goal_detail.get("id", ""))
+    if gid:
+        lookup[gid] = {
+            "name": goal_detail.get("name", ""),
+            "fullLevelNumber": goal_detail.get("fullLevelNumber", ""),
+            "nodeType": "目标",
+        }
+    for kr in goal_detail.get("keyResultList") or goal_detail.get("keyResults") or []:
+        kid = str(kr.get("id", ""))
+        if kid:
+            lookup[kid] = {
+                "name": kr.get("name", ""),
+                "fullLevelNumber": kr.get("fullLevelNumber", ""),
+                "nodeType": "关键成果",
+            }
+        for action in kr.get("actionList") or kr.get("actions") or []:
+            aid = str(action.get("id", ""))
+            if aid:
+                lookup[aid] = {
+                    "name": action.get("name", ""),
+                    "fullLevelNumber": action.get("fullLevelNumber", ""),
+                    "nodeType": "举措",
+                }
+    return lookup
 
 
 # ─── collect_monthly_overview ─────────────────────────────────────
@@ -313,12 +412,16 @@ def collect_monthly_overview(args):
 def collect_goal_data(args):
     """Collect BP detail + reports for a single goal (per-goal granularity).
 
+    Outputs a lightweight JSON with structure + report index (no full text),
+    and writes each report's full text to a shared report pool directory.
+
     1. Fetch goal detail (with KRs and actions)
     2. Extract all node IDs under this goal
     3. Query reports for each node within the month
-    4. Fetch full report content for all unique report IDs (no truncation)
-    5. Build reverse index and per-task report data
-    6. Write independent JSON file for this goal
+    4. Fetch full report content for all unique report IDs
+    5. Build reportIndex with relatedNodes (which KR/action each report maps to)
+    6. Write report full text to /tmp/reports_{groupId}/ (shared pool, deduped)
+    7. Write lightweight goal_data JSON (slimmed goalDetail + reportIndex + reports refs)
     """
     if not args.goal_id:
         return {"error": "goal_id is required for collect_goal_data"}
@@ -333,8 +436,9 @@ def collect_goal_data(args):
     if not detail.get("success"):
         return {"error": f"Failed to fetch goal detail: {detail.get('error')}"}
 
-    goal_detail = detail["data"]
-    node_ids = _extract_ids_from_goal_detail(goal_detail)
+    goal_detail_raw = detail["data"]
+    node_ids = _extract_ids_from_goal_detail(goal_detail_raw)
+    node_lookup = _build_node_lookup(goal_detail_raw)
     _log(f"Goal has {len(node_ids)} nodes")
 
     task_report_ids = {}
@@ -391,28 +495,75 @@ def collect_goal_data(args):
             if tid not in report_task_mapping[bid]:
                 report_task_mapping[bid].append(tid)
 
-    reports_by_task = {}
+    group_id = getattr(args, "group_id", None) or ""
+
+    # --- Write full text to shared report pool (deduped by reportId) ---
+    reports_dir = f"/tmp/reports_{group_id}"
+    os.makedirs(reports_dir, exist_ok=True)
+    for rid, rc in report_contents.items():
+        report_path = os.path.join(reports_dir, f"{rid}.json")
+        if not os.path.exists(report_path):
+            plain_text = _strip_html(rc.get("content", ""))
+            file_content = {
+                "reportId": rid,
+                "title": rc.get("title", ""),
+                "content": plain_text,
+                "contentHtml": rc.get("content", ""),
+                "authorEmpId": rc.get("authorEmpId", ""),
+                "authorName": rc.get("authorName", ""),
+                "createTime": rc.get("createTime"),
+            }
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump(file_content, f, ensure_ascii=False, indent=2)
+
+    # --- Build reportIndex (lightweight, with relatedNodes) ---
+    report_index = {}
+    for rid, rc in report_contents.items():
+        related_task_ids = report_task_mapping.get(rid, [])
+        related_nodes = []
+        for tid in related_task_ids:
+            node_info = node_lookup.get(tid)
+            if node_info:
+                related_nodes.append({"taskId": tid, **node_info})
+            else:
+                related_nodes.append({"taskId": tid, "name": "", "fullLevelNumber": "", "nodeType": ""})
+
+        plain_text = _strip_html(rc.get("content", ""))
+        report_index[rid] = {
+            "reportId": rid,
+            "title": rc.get("title", ""),
+            "authorEmpId": rc.get("authorEmpId", ""),
+            "authorName": rc.get("authorName", ""),
+            "createTime": rc.get("createTime"),
+            "charCount": len(plain_text),
+            "contentPreview": plain_text[:CONTENT_PREVIEW_CHARS],
+            "relatedNodes": related_nodes,
+        }
+
+    # --- Build reports refs (reportId only, no full text) ---
+    reports_refs = {}
     for tid, biz_entries in task_report_ids.items():
-        task_reports = []
+        task_refs = []
         for entry in biz_entries:
             bid = entry["bizId"]
-            rc = report_contents.get(bid)
-            if rc:
-                task_reports.append({**rc, "type": entry.get("type", ""), "businessTime": entry.get("businessTime")})
-        if task_reports:
-            reports_by_task[tid] = task_reports
-
-    group_id = getattr(args, "group_id", None) or ""
+            if bid in report_contents:
+                task_refs.append({
+                    "reportId": bid,
+                    "type": entry.get("type", ""),
+                    "businessTime": entry.get("businessTime"),
+                })
+        if task_refs:
+            reports_refs[tid] = task_refs
 
     output = {
         "goalId": args.goal_id,
         "groupId": group_id,
         "month": args.month,
         "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "goalDetail": goal_detail,
-        "uniqueReportMap": report_contents,
-        "reportTaskMapping": report_task_mapping,
-        "reports": reports_by_task,
+        "goalDetail": _slim_goal_detail(goal_detail_raw),
+        "reportIndex": report_index,
+        "reports": reports_refs,
+        "reportsDir": reports_dir,
         "stats": {
             "nodeCount": len(node_ids),
             "uniqueReportCount": len(all_report_ids),
@@ -426,8 +577,8 @@ def collect_goal_data(args):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    _log(f"Done! Goal data written to {output_path}")
-    return {"success": True, "outputFile": output_path, "stats": output["stats"]}
+    _log(f"Done! Goal data written to {output_path} (reports in {reports_dir})")
+    return {"success": True, "outputFile": output_path, "reportsDir": reports_dir, "stats": output["stats"]}
 
 
 # ─── collect_monthly_data (legacy, kept for backward compatibility) ──
@@ -600,6 +751,41 @@ def get_report_content(args):
     if not args.report_id:
         return {"error": "report_id is required for get_report_content"}
     return _request("GET", "/work-report/report/info", params={"reportId": args.report_id})
+
+
+def get_report_text(args):
+    """Read a single report's plain-text content from the local report pool.
+
+    Looks up /tmp/reports_{groupId}/{reportId}.json first (written by collect_goal_data).
+    Falls back to fetching from API if local file not found.
+    """
+    if not args.report_id:
+        return {"error": "report_id is required for get_report_text"}
+    if not args.group_id:
+        return {"error": "group_id is required for get_report_text"}
+
+    report_path = f"/tmp/reports_{args.group_id}/{args.report_id}.json"
+    if os.path.isfile(report_path):
+        with open(report_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {"success": True, "source": "local", **data}
+
+    _log(f"Local file not found: {report_path}, fetching from API...")
+    result = _request("GET", "/work-report/report/info", params={"reportId": args.report_id})
+    if result.get("success") and result["data"]:
+        rc = _build_report_content(result["data"], truncate=False)
+        return {
+            "success": True,
+            "source": "api",
+            "reportId": args.report_id,
+            "title": rc.get("title", ""),
+            "content": _strip_html(rc.get("content", "")),
+            "contentHtml": rc.get("content", ""),
+            "authorEmpId": rc.get("authorEmpId", ""),
+            "authorName": rc.get("authorName", ""),
+            "createTime": rc.get("createTime"),
+        }
+    return result
 
 
 def _do_save_draft(url, headers, body):
@@ -841,26 +1027,45 @@ def collect_previous_month_data(args):
         errors.append({"step": "list_monthly_reports", "error": reports_result.get("error")})
 
     # Step 2: fetch report content for each reportRecordId
+    # Full text goes to report pool; JSON only keeps preview + charCount
+    reports_dir = f"/tmp/reports_{args.group_id}"
+    os.makedirs(reports_dir, exist_ok=True)
+
     report_contents = []
     for item in report_items:
         rid = item.get("reportRecordId")
         type_desc = item.get("reportTypeDesc", "")
         if not rid:
             continue
-        _log(f"Fetching report content: {type_desc} (id={rid})")
-        content_result = _request("GET", "/work-report/report/info", params={"reportId": str(rid)})
+        rid_str = str(rid)
+        _log(f"Fetching report content: {type_desc} (id={rid_str})")
+        content_result = _request("GET", "/work-report/report/info", params={"reportId": rid_str})
         if content_result.get("success") and content_result.get("data"):
             rd = content_result["data"]
             content_html = rd.get("contentHtml") or rd.get("content") or ""
+            plain_text = _strip_html(content_html)
+
+            report_path = os.path.join(reports_dir, f"prev_{rid_str}.json")
+            if not os.path.exists(report_path):
+                with open(report_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "reportId": rid_str,
+                        "title": rd.get("main", ""),
+                        "content": plain_text,
+                        "contentHtml": content_html,
+                        "createTime": rd.get("createTime"),
+                    }, f, ensure_ascii=False, indent=2)
+
             report_contents.append({
                 "reportTypeDesc": type_desc,
-                "reportRecordId": str(rid),
+                "reportRecordId": rid_str,
                 "title": rd.get("main", ""),
-                "content": content_html,
+                "charCount": len(plain_text),
+                "contentPreview": plain_text[:500],
                 "createTime": rd.get("createTime"),
             })
         else:
-            errors.append({"step": "report_content", "id": str(rid), "error": content_result.get("error")})
+            errors.append({"step": "report_content", "id": rid_str, "error": content_result.get("error")})
 
     # Step 3: fetch monthly evaluation Markdown
     _log(f"Fetching monthly evaluation for {prev_month}...")
@@ -906,6 +1111,7 @@ ACTION_MAP = {
     "collect_monthly_data": collect_monthly_data,
     "collect_previous_month_data": collect_previous_month_data,
     "get_report_content": get_report_content,
+    "get_report_text": get_report_text,
     "save_draft": save_draft,
     "save_monthly_report": save_monthly_report,
     "update_report_status": update_report_status,

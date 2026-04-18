@@ -39,10 +39,4 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_mo
 
 ---
 
-## 批量生成
 
-1. `get_all_periods` → 获取启用周期
-2. `get_group_tree --only_personal` → 获取所有个人分组
-3. 遍历每个个人分组，对每人执行完整生成流程
-
-**注意**：批量生成前必须征得用户明确同意，并告知预计耗时。

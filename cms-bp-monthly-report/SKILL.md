@@ -64,7 +64,7 @@ scripts/
 
 ## 全局容错规则
 
-- **数据采集失败**（Step 2）：检查脚本输出的 `errors` 数组。若核心数据（`goalDetail`、`uniqueReportMap`）已获取 → 记录警告，继续。若核心数据缺失 → 重试一次该步骤。仍失败则调用 `update_report_status --status 2`
+- **数据采集失败**（Step 2）：检查脚本输出的 `errors` 数组。若核心数据（`goalDetail`、`reportIndex`）已获取 → 记录警告，继续。若核心数据缺失 → 重试一次该步骤。仍失败则调用 `update_report_status --status 2`
 - **文件不存在**：执行每个步骤前，先确认上一步的产出文件存在且非空。若不存在，回退重新执行上一步
 - **校验失败回退**：以目标为粒度定位失败项，仅回退修正该目标对应章节。同一目标最多重试 2 次
 - **最大重试**：任何单步最多重试 2 次，超过则标记失败并终止
@@ -105,8 +105,8 @@ scripts/
 **前置加载**：读取 [references/workflow/step2-collect.md](references/workflow/step2-collect.md)
 
 1. **2a-i**: 执行 `collect_monthly_overview` → 产出 `/tmp/monthly_overview_{groupId}.json`，读取该文件获取目标列表
-2. **2a-ii**: 对 goals 列表中的每个目标，执行 `collect_goal_data` → 产出 `/tmp/goal_data_{groupId}_{goalId}.json`
-3. **2b**: 执行 `collect_previous_month_data`（**`--month` 传上月**，如当月 2026-03 则传 2026-02） → 产出 `/tmp/prev_month_data_{groupId}.json`。首月可跳过
+2. **2a-ii**: 对 goals 列表中的每个目标，执行 `collect_goal_data` → 产出 `/tmp/goal_data_{groupId}_{goalId}.json`（轻量索引）+ `/tmp/reports_{groupId}/` 目录（汇报全文池）
+3. **2b**: 执行 `collect_previous_month_data`（**`--month` 传上月**，如当月 2026-03 则传 2026-02） → 产出 `/tmp/prev_month_data_{groupId}.json`（上月汇报预览+评价），全文也写入 `/tmp/reports_{groupId}/`。首月可跳过
 
 **完成后输出**：`✅ Step 2 完成 — {N} 个目标数据已采集，上月数据已采集（或首月跳过）`
 
@@ -122,7 +122,7 @@ scripts/
 
 1. **3a**: 构建 BP 锚点图 → 产出 `/tmp/bp_anchor_{groupId}.md`
 2. **3b**: 构建证据台账 + R/RP 编号分配（严格按 evidence-rules.md） → 产出 `/tmp/evidence_ledger_{groupId}.md`
-3. **3c**: 目标级排除判断 + 逐目标循环（精读→判灯→组装） → 产出 `/tmp/excluded_goals_{groupId}.md` + `/tmp/goal_cards_{groupId}_{goalIndex}.md` + `/tmp/goal_section_{groupId}_{goalIndex}.md`
+3. **3c**: 目标级排除判断 + 逐目标循环（按需精读→判灯→组装）。精读汇报时通过 `get_report_text` 从汇报池按需加载单条全文 → 产出 `/tmp/excluded_goals_{groupId}.md` + `/tmp/goal_cards_{groupId}_{goalIndex}.md` + `/tmp/goal_section_{groupId}_{goalIndex}.md`
 4. **3d**: 读取 [references/rules/validation-rules.md](references/rules/validation-rules.md)，拼接全局报告（含第 1–4 章 + 附录） + 语言清洗 + 16 项合规校验（含第 4 章校验） → 产出 `/tmp/report_selfcheck_{groupId}.md`
 
 **完成后输出**：`✅ Step 3 完成 — 报告已生成并通过合规校验`

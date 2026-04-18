@@ -40,22 +40,23 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect
 ```
 
 脚本内部自动完成：
-1. 获取该目标的完整详情（含衡量标准、KR、举措、参与人）
+1. 获取该目标的完整详情，并精简为只保留判灯必要字段（measureStandard 去 HTML）
 2. 提取该目标下所有节点 ID（目标自身 + KR + 举措）
 3. 对每个节点查询当月关联汇报列表
-4. 拉取所有去重 reportId 的汇报**原文全文**（不截断）
-5. 构建该目标内部的反向索引（reportId → taskId 列表）
-6. 输出独立 JSON 文件
+4. 拉取所有去重 reportId 的汇报原文
+5. 构建 `reportIndex`（轻量索引：标题/作者/时间/字数/前 300 字预览 + `relatedNodes` 标注关联的具体 KR/举措名称和编号）
+6. 汇报全文写入全局汇报池 `/tmp/reports_{groupId}/{reportId}.json`（跨目标自动去重）
+7. 输出轻量 JSON 文件（不含汇报全文）
 
 **输出 JSON 结构**：
 
 | 字段 | 说明 |
 |------|------|
 | `goalId` | 目标 ID |
-| `goalDetail` | 该目标的完整详情（含 KR 列表、举措列表、衡量标准等） |
-| `uniqueReportMap` | reportId → 完整汇报内容的去重主表（**不截断**，保留原文全文） |
-| `reportTaskMapping` | reportId → 关联的 taskId 列表（仅该目标范围内的反向索引） |
-| `reports` | 按 taskId 分组的汇报引用 |
+| `goalDetail` | 该目标的精简详情（含 KR 列表、举措列表、衡量标准纯文本，去掉 API 冗余字段） |
+| `reportIndex` | reportId → 轻量汇报索引，每条含标题、作者、时间、`charCount`、`contentPreview`（前 300 字）、`relatedNodes`（关联的 KR/举措名称和编号） |
+| `reports` | 按 taskId 分组的 reportId 引用列表（仅含 reportId + type + businessTime，不含全文） |
+| `reportsDir` | 汇报全文所在目录路径 `/tmp/reports_{groupId}/` |
 | `stats` | 统计信息：`nodeCount`、`uniqueReportCount`、`fetchedReportContents` |
 | `errors` | 采集过程中的错误记录（如有） |
 
@@ -64,11 +65,15 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect
 ```
 /tmp/monthly_overview_{groupId}.json         -- 全局概览
 /tmp/goal_data_{groupId}_{goalId_1}.json     -- 目标1 数据
-/tmp/goal_data_{groupId}_{goalId_2}.json     -- 目标2 数据
+/tmp/goal_data_{groupId}_{goalId_2}.json     -- 目标2 轻量索引
 ...
+/tmp/reports_{groupId}/                       -- 全局汇报池（所有目标共享，按 reportId 去重）
+  {reportId_1}.json                           -- 单条汇报纯文本 + HTML 全文
+  {reportId_2}.json
+  ...
 ```
 
-**容错**：每个目标采集完成后，检查输出的 `errors` 数组。若 `errors` 非空但 `goalDetail` 和 `uniqueReportMap` 已获取 → 记录警告，继续下一个目标。若 `goalDetail` 缺失 → 重试一次该目标。仍失败则跳过该目标并在最终报告中注明。
+**容错**：每个目标采集完成后，检查输出的 `errors` 数组。若 `errors` 非空但 `goalDetail` 和 `reportIndex` 已获取 → 记录警告，继续下一个目标。若 `goalDetail` 缺失 → 重试一次该目标。仍失败则跳过该目标并在最终报告中注明。
 
 ---
 
@@ -95,7 +100,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect
 
 | 字段 | 说明 |
 |------|------|
-| `reports` | 上月各类型月报列表，每条含 `reportTypeDesc`、`reportRecordId`、`title`、`content` |
+| `reports` | 上月各类型月报列表，每条含 `reportTypeDesc`、`reportRecordId`、`title`、`charCount`、`contentPreview`（前 500 字纯文本预览）。全文存入 `/tmp/reports_{groupId}/prev_{reportRecordId}.json` |
 | `evaluations` | 上月评价 Markdown 列表，每条含 `evaluationTypeDesc`（自评/上级评价）和 `evaluationMarkdown` |
 | `stats` | 统计信息：报告数、评价数 |
 | `errors` | 采集过程中的错误记录（如有） |

@@ -16,6 +16,7 @@
 
 内容高度相似的汇报（如同一模板发给不同人、同一事项的批量发送），合并为**一个独立工作事项**。
 
+判断依据：基于 `reportIndex` 中的 `contentPreview`（前 300 字纯文本预览）和 `title` 字段进行相似度判断。若预览不足以判断，可通过 `get_report_text` 按需获取全文进一步比对。
 
 **兜底规则**：若无法确定是否为同一事项，默认**不合并**（宁可多不可少）。
 
@@ -67,7 +68,7 @@
 
 ### 2. 节点归集
 
-利用 `reportTaskMapping`（reportId → taskId 列表）确定每条汇报关联了哪些 BP 节点。
+利用 `reportIndex` 中每条汇报的 `relatedNodes` 字段确定其关联了哪些 BP 节点（每个 relatedNode 包含 taskId、name、fullLevelNumber、nodeType）。
 
 **交叉引用**：一条汇报的内容如果明确涉及其他目标/关键成果的关键词，应在对应节点的证据台账中做交叉引用标注，但不改变其原始归集。
 
@@ -96,7 +97,7 @@
 每条证据在分配 R 编号的同时，必须生成对应的汇报查看链接：
 
 - **格式**：`huibao://view?id={reportId}`
-- **reportId 来源**：取自 `uniqueReportMap` 中该条汇报的原始 reportId 字段，字符串原样使用，**严禁做任何数值转换**
+- **reportId 来源**：取自 `reportIndex` 中该条汇报的原始 reportId 字段，字符串原样使用，**严禁做任何数值转换**
 - **聚合场景**：若一条工作事项由多条内容相似的汇报聚合而成，取其中第一条（按 createTime 最早）的 reportId 生成链接
 - **链接缺失**：若因 API 异常导致 reportId 为空，链接列填写"暂不可用"，不得伪造 ID
 
@@ -119,7 +120,7 @@
 
 - R 编号列直接展示文本（如 `R0301`），不需要 `<span id>` 锚点标签
 - 汇报链接列保持 `[查看汇报](huibao://view?id={reportId})` 格式
-- 汇报链接 reportId 从 `uniqueReportMap` 原样取用，reportRecordId 从 `collect_previous_month_data` 原样取用，**严禁伪造或编造**
+- 汇报链接 reportId 从 `reportIndex` 原样取用，reportRecordId 从 `collect_previous_month_data` 原样取用，**严禁伪造或编造**
 
 ### 4. 证据台账作为附录唯一数据源
 
