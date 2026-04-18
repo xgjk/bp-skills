@@ -15,7 +15,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_dr
   --content_file "/tmp/report_selfcheck_{groupId}.md"
 ```
 
-> `--employeeId` 用户提供。
+> `--receiver_emp_id` 即目标员工的 employeeId，由用户提供。
 
 > `--sender_id` 无需手动指定。脚本自动通过接收人的 empId 查询组织架构获取 corpId，匹配对应企业的 AI 助理。
 

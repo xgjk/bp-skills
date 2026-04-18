@@ -48,11 +48,11 @@ CORP_ID_TO_SENDER = {
 }
 
 SENDER_TO_APP_KEY = {
-    "400001": "5xmsXv311OVq121d5hzb5yGJ6sO5AB04",
-    "400002": "1xmsXv2yv11OVqkd3zb5yG441sO5AB04",
-    "400003": "5xmsXvVyv11dskd5hzb5ys6ssswqAB04",
+    "400001": os.environ.get("BP_SEND_APP_KEY_400001", ""),
+    "400002": os.environ.get("BP_SEND_APP_KEY_400002", ""),
+    "400003": os.environ.get("BP_SEND_APP_KEY_400003", ""),
 }
-DEFAULT_SEND_APP_KEY = SENDER_TO_APP_KEY[DEFAULT_SENDER_ID]
+DEFAULT_SEND_APP_KEY = SENDER_TO_APP_KEY.get(DEFAULT_SENDER_ID, "")
 
 
 def _log(msg):
@@ -377,7 +377,7 @@ def collect_goal_data(args):
             _log(f"  fetching report content {i}/{len(all_report_ids)}")
         result = _request("GET", "/work-report/report/info", params={"reportId": rid})
         if result.get("success") and result["data"]:
-            rc = _build_report_content(result["data"], truncate=False)
+            rc = _build_report_content(result["data"], truncate=True)
             rc["reportId"] = rid
             report_contents[rid] = rc
         else:

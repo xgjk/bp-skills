@@ -74,7 +74,7 @@ scripts/
 | 场景 | 处理方式 |
 |------|---------|
 | 某目标无任何汇报 | 正常进入判灯流程，所有举措判黑灯 |
-| 所有目标均被排除（★ 未启动） | 报告只有 1.2 灯色概览（全部★未启动）+ 附录，无第 2 章明细 |
+| 所有目标均被排除（★ 未启动） | 报告保留 2.1 总览表（所有目标均以 ★ 未启动列入），2.2 明细为空不展开，其余章节正常输出 |
 | 目标有 KR 但无举措 | 目标灯色标黑灯，理由注明"无关键举措" |
 | 上月数据采集为空（首月） | Step 2b 跳过，基线行写"首月，无基线"，RP 不分配 |
 | goalDetail 中 KR 列表为空 | 该目标下无成果可分析，目标灯色判黑灯 |
@@ -122,8 +122,8 @@ scripts/
 
 1. **3a**: 构建 BP 锚点图 → 产出 `/tmp/bp_anchor_{groupId}.md`
 2. **3b**: 构建证据台账 + R/RP 编号分配（严格按 evidence-rules.md） → 产出 `/tmp/evidence_ledger_{groupId}.md`
-3. **3c**: 目标级排除判断 + 逐目标循环（精读→判灯→组装） → 产出 `/tmp/excluded_goals_{groupId}.md` + `/tmp/goal_cards_{groupId}_{N}.md` + `/tmp/goal_section_{groupId}_{N}.md`
-4. **3d**: 读取 [references/rules/validation-rules.md](references/rules/validation-rules.md)，拼接全局报告（含第 1–4 章 + 附录） + 语言清洗 + 16 项合规校验 → 产出 `/tmp/report_selfcheck_{groupId}.md`
+3. **3c**: 目标级排除判断 + 逐目标循环（精读→判灯→组装） → 产出 `/tmp/excluded_goals_{groupId}.md` + `/tmp/goal_cards_{groupId}_{goalIndex}.md` + `/tmp/goal_section_{groupId}_{goalIndex}.md`
+4. **3d**: 读取 [references/rules/validation-rules.md](references/rules/validation-rules.md)，拼接全局报告（含第 1–4 章 + 附录） + 语言清洗 + 16 项合规校验（含第 4 章校验） → 产出 `/tmp/report_selfcheck_{groupId}.md`
 
 **完成后输出**：`✅ Step 3 完成 — 报告已生成并通过合规校验`
 
@@ -131,6 +131,6 @@ scripts/
 
 **前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md)
 
-校验通过后直接保存草稿（`save_draft`），记录 `report_record_id`，再保存到 BP 系统（`save_monthly_report`）。失败时调用 `update_report_status --status 2`。
+校验通过后直接保存草稿（`save_draft`），记录 `report_record_id`，再保存到 BP 系统（`save_monthly_report`）。`save_monthly_report` 保存成功后自动将 `generateStatus` 置为 `1=成功`，无需再单独调用 `update_report_status`。失败时调用 `update_report_status --status 2`。
 
 **完成后输出**：`✅ Step 4 完成 — 报告已发送并保存，report_record_id={值}`

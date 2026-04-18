@@ -43,7 +43,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect
 1. 获取该目标的完整详情（含衡量标准、KR、举措、参与人）
 2. 提取该目标下所有节点 ID（目标自身 + KR + 举措）
 3. 对每个节点查询当月关联汇报列表
-4. 拉取所有去重 reportId 的汇报**原文全文**（不截断）
+4. 拉取所有去重 reportId 的汇报正文（超过 `REPORT_CONTENT_MAX_CHARS` 字符时截断）
 5. 构建该目标内部的反向索引（reportId → taskId 列表）
 6. 输出独立 JSON 文件
 
@@ -53,7 +53,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect
 |------|------|
 | `goalId` | 目标 ID |
 | `goalDetail` | 该目标的完整详情（含 KR 列表、举措列表、衡量标准等） |
-| `uniqueReportMap` | reportId → 完整汇报内容的去重主表（**不截断**，保留原文全文） |
+| `uniqueReportMap` | reportId → 汇报内容的去重主表（超长内容按 `REPORT_CONTENT_MAX_CHARS` 截断） |
 | `reportTaskMapping` | reportId → 关联的 taskId 列表（仅该目标范围内的反向索引） |
 | `reports` | 按 taskId 分组的汇报引用 |
 | `stats` | 统计信息：`nodeCount`、`uniqueReportCount`、`fetchedReportContents` |
