@@ -60,7 +60,7 @@ scripts/
 - 禁止空值直出（如"无数据"），必须转为有引导意义的自然语句
 - 禁止技术字段泄漏（reportId、taskId 等 API 字段名不得出现在报告正文）
 - 所有灯色使用 HTML span 标签渲染（详见 templates/report-template-bp-self-check.md）
-- 证据引用统一使用 `[R编号](huibao://view?id={reportId})《汇报标题》` 格式
+- 正文证据引用只带编号：`[R编号](huibao://view?id={reportId})`，不附带书名号标题。汇报标题仅在附录 A.2 证据清单中展示
 
 ## 全局容错规则
 
