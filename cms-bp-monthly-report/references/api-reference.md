@@ -19,7 +19,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 | `init_work_dir` | 前置 | 初始化工作目录（清理同一 groupId+month 的历史残留） | `--group_id`、`--month` | — |
 | `collect_monthly_overview` | 1 | 采集全局概览（任务树+目标列表） | `--group_id`、`--month` | `--output` |
 | `collect_goal_progress` | 2-3 | 单目标：排除判断 + 证据 Markdown + 黑灯 + reportId 提取 | `--group_id`、`--goal_id`、`--month` | `--output` |
-| `build_goal_evidence` | 3.5 | 构建目标级证据台账 + R 编号分配 | `--group_id`、`--goal_id`、`--month` | `--employee_id`、`--r_start_index`（默认 1） |
+| `build_goal_evidence` | 3.5 | 构建目标级证据台账 + R 编号分配 | `--group_id`、`--goal_id`、`--month`、`--employee_id`、`--r_start_index` | `--output` |
 | `build_judgment_input` | 4 | 组装判灯材料包 Markdown | `--group_id`、`--goal_id`、`--month` | — |
 | `aggregate_lamp_colors` | 7 | 举措灯色 → 目标灯色聚合 | `--group_id`、`--goal_id`、`--month` | — |
 | `build_evidence_ledger` | 8 | 合并所有目标证据台账为全局台账 | `--group_id`、`--month` | — |
@@ -47,31 +47,39 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 
 ## 工作目录结构
 
-新流程所有中间产物统一保存在 `/tmp/bp_report_{groupId}_{month}/` 下：
+新流程所有中间产物统一保存在 `/tmp/bp_report_{groupId}_{month}/` 下（中间产物 vs 最终拼接素材详见 SKILL.md）：
 
 ```
 /tmp/bp_report_{groupId}_{month}/
+
+  ── 中间产物（仅供后续阶段消费）──
   overview.json                          # collect_monthly_overview
   prev_month.json                        # collect_previous_month_data
-  excluded_goals.md                      # AI Phase 11
   goals/
     {goalId}/
       progress.json                      # collect_goal_progress
-      goal_evidence.md                   # build_goal_evidence
-      goal_evidence.json                 # build_goal_evidence
-      judgment_input_{actionId}.md       # build_judgment_input
-      action_judgments.json              # AI Phase 5
-      action_judgments.md                # AI Phase 5
-      kr_analysis.md                     # AI Phase 6
-      goal_lamp.json                     # aggregate_lamp_colors
-      goal_report.md                     # AI Phase 10
-  evidence_ledger.md                     # build_evidence_ledger
-  report_header.md                       # AI Phase 9
-  overview_table.md                      # AI Phase 12
-  conclusion.md                          # AI Phase 13
-  chapter3.md                            # AI Phase 14
-  chapter4.md                            # AI Phase 14
-  report_selfcheck.md                    # assemble_report
+      goal_evidence.md                   # build_goal_evidence（供AI引用+合并到全局台账）
+      goal_evidence.json                 # build_goal_evidence（供脚本消费）
+      judgment_input_{actionId}.md       # build_judgment_input（供AI判灯消费）
+      action_judgments.json              # AI Step 3a（供脚本聚合）
+      action_judgments.md                # AI Step 3a（供AI生成目标报告）
+      kr_analysis.md                     # AI Step 3b（供AI生成目标报告）
+      goal_lamp.json                     # aggregate_lamp_colors（供总览表和结论引用）
+
+  ── 最终拼接素材（由 assemble_report 读取并拼入报告）──
+  goals/
+    {goalId}/
+      goal_report.md                     # AI Step 3d → 拼入 2.2 目标明细
+  excluded_goals.md                      # AI Step 3e → 拼入 2.2 尾部
+  report_header.md                       # AI Step 3h → 拼入报告开头
+  overview_table.md                      # AI Step 3f → 拼入 2.1 章
+  conclusion.md                          # AI Step 3g → 拼入第1章
+  chapter3.md                            # AI Step 3h → 拼入第3章
+  chapter4.md                            # AI Step 3h → 拼入第4章
+  evidence_ledger.md                     # build_evidence_ledger → 拼入附录
+
+  ── 最终输出 ──
+  report_selfcheck.md                    # assemble_report → 保存到BP系统
 ```
 
 ---

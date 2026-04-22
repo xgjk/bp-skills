@@ -60,7 +60,7 @@
 
 ## 3c: 目标层聚合（阶段 7）
 
-**脚本执行**，AI 无需介入：
+**脚本执行**，AI 无需介入。输出：`goals/{goalId}/goal_lamp.json`
 
 ```bash
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggregate_lamp_colors \
@@ -68,10 +68,6 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
   --goal_id "{goalId}" \
   --month "{YYYY-MM}"
 ```
-
-规则：红 > 黄 > 黑 > 绿（取最高优先级）
-
-输出：`goals/{goalId}/goal_lamp.json`
 
 ---
 
@@ -193,15 +189,13 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 
 ## 3i: 全局证据台账合并（阶段 8）
 
-**脚本执行**：
+**脚本执行**，AI 无需介入。输出：`evidence_ledger.md`
 
 ```bash
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py build_evidence_ledger \
   --group_id "{groupId}" \
   --month "{YYYY-MM}"
 ```
-
-合并所有目标的 `goal_evidence.md` + `prev_month.json` 中的 RP 编号 → 输出 `evidence_ledger.md`
 
 ---
 

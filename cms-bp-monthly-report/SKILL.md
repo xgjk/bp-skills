@@ -46,43 +46,19 @@ scripts/
 
 ## 工作目录
 
-每次运行的中间产物统一保存在 `/tmp/bp_report_{groupId}_{month}/` 目录下，按 groupId + month 隔离。初始化时清理同一维度的历史残留，不影响其他分组或月份。
-
-```
-/tmp/bp_report_{groupId}_{month}/
-  overview.json                          # 阶段1: 目标列表
-  prev_month.json                        # 上月数据
-  excluded_goals.md                      # 排除结果
-  goals/
-    {goalId}/
-      progress.json                      # 阶段2-3: 排除+举证Markdown+黑灯+reportIds
-      goal_evidence.md                   # 阶段3.5: 目标级证据台账
-      goal_evidence.json                 # 阶段3.5: 证据台账结构化数据
-      judgment_input_{actionId}.md       # 阶段4: 判灯材料包
-      action_judgments.json              # 阶段5: 举措判灯结果(结构化)
-      action_judgments.md                # 阶段5: 举措判灯结果(Markdown)
-      kr_analysis.md                     # 阶段6: KR差距分析
-      goal_lamp.json                     # 阶段7: 目标级灯色
-      goal_report.md                     # 阶段10: 目标总结报告
-  evidence_ledger.md                     # 阶段8: 全局证据台账
-  report_header.md                       # 阶段9: 报告头部
-  overview_table.md                      # 阶段12: 目标总览表
-  conclusion.md                          # 阶段13: 总体结论
-  chapter3.md                            # 阶段14: 第3章链接
-  chapter4.md                            # 阶段14: 第4章链接
-  report_selfcheck.md                    # 阶段15: 最终拼接报告
-```
+每次运行的中间产物统一保存在 `/tmp/bp_report_{groupId}_{month}/` 目录下，按 groupId + month 隔离。初始化时清理同一维度的历史残留，不影响其他分组或月份。各步骤的具体产出文件见对应的 workflow 文档。
 
 ## 禁止事项
 
 1. 禁止一步生成整篇报告，必须走 Step 1 → 1.5 → 2 → 3 → 4 的分步流程
 2. 禁止对任何 ID 参数做数值转换（parseInt/Number），保持字符串原样
-3. 禁止在校验通过前调用保存接口
-4. 禁止伪造 R 编号、RP 编号、汇报链接或任何数据
-5. 禁止跳过参考文档加载直接执行 Step 3
-6. 禁止在最终报告中输出内部流程步骤编号（Step 3a/3b 等）或模板括号注释
-7. 禁止混用 R 编号和 RP 编号
-8. 禁止读取其他目标的 goal_report 或中间文件（上下文隔离）
+3. **禁止在校验通过前调用保存接口** — 4b 校验为最高优先级，必须逐条执行并输出校验报告
+4. **禁止跳过或简化校验流程** — 不得用"已大致检查"替代逐条校验，必须 16 项全部给出明确结论
+5. 禁止伪造 R 编号、RP 编号、汇报链接或任何数据
+6. 禁止跳过参考文档加载直接执行 Step 3
+7. 禁止在最终报告中输出内部流程步骤编号（Step 3a/3b 等）或模板括号注释
+8. 禁止混用 R 编号和 RP 编号
+9. 禁止读取其他目标的 goal_report 或中间文件（上下文隔离）
 
 ## 输出风格
 
@@ -105,7 +81,8 @@ scripts/
 |------|---------|
 | 某目标无任何汇报 | 正常进入判灯流程，所有举措判黑灯 |
 | 所有目标均被排除（★ 未启动） | 报告保留 2.1 总览表（所有目标均以 ★ 未启动列入），2.2 明细为空不展开，其余章节正常输出 |
-| 目标有 KR 但无举措 | 目标灯色标黑灯，理由注明"无关键举措" |
+| 目标有 KR 但 KR 下无举措节点 | 目标灯色标黑灯，理由注明"无关键举措" |
+| 目标参与自查但其下所有 KR/举措均被排除 | 目标仍参与自查，灯色标黑灯，理由注明"该目标下所有成果与举措计划期均未覆盖本月" |
 | 上月数据采集为空（首月） | Step 2e 跳过，基线行写"首月，无基线"，RP 不分配 |
 | goalDetail 中 KR 列表为空 | 该目标下无成果可分析，目标灯色判黑灯 |
 | 内容聚合无法判断是否同一事项 | 默认不合并（宁可多不可少） |
@@ -167,11 +144,15 @@ scripts/
 
 ### Step 4: 拼接报告 → 校验 → 保存
 
-**前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md) + [references/rules/validation-rules.md](references/rules/validation-rules.md)
+**前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md) + [references/rules/validation-rules.md](references/rules/validation-rules.md) + [references/templates/report-template-bp-self-check.md](references/templates/report-template-bp-self-check.md)
 
 执行顺序：
 1. **4a**: `assemble_report` 脚本拼接最终报告 → `report_selfcheck.md`
-2. **4b**: 16 项合规性校验
+2. **4b**: **⚠️ 16 项合规性校验 + 5 条语言清洗（高优先级，不可跳过）**
+   - 必须读取完整 `report_selfcheck.md`，逐条对照校验清单
+   - 必须同时对照 `report-template-bp-self-check.md` 核查报告结构
+   - 每项输出明确的通过/未通过结论，最终输出校验报告摘要
+   - **校验未全部通过时，严禁进入保存流程**
 3. **4c**: `save_openclaw_report` 保存到 BP 系统
 
 **完成后输出**：`Step 4 完成 — 报告已保存到 BP 系统`

@@ -72,13 +72,6 @@ def _log(msg):
     print(f"[progress] {msg}", file=sys.stderr)
 
 
-def _strip_html(text):
-    """Remove HTML tags from text, e.g. <p style="...">content</p> -> content."""
-    if not text:
-        return ""
-    return re.sub(r'<[^>]+>', '', text).strip()
-
-
 def _resolve_sender(receiver_emp_id):
     """Look up the receiver's corpId and return (sender_id, app_key).
 
@@ -425,7 +418,7 @@ def _judge_exclusion(plan_date_range, status_desc, month):
     Returns: {"excluded": bool, "reason": str | None}
     Rules (hit-and-stop):
     1. statusDesc == "草稿" -> exclude
-    2. planStartDate and planEndDate both empty -> participate (lenient)
+    2. planStartDate and planEndDate both empty -> exclude
     3. planStartDate > month last day -> exclude
     4. planEndDate < month first day -> exclude
     5. else -> participate
@@ -435,7 +428,7 @@ def _judge_exclusion(plan_date_range, status_desc, month):
 
     start_str, end_str = _parse_plan_date_range(plan_date_range)
     if start_str is None and end_str is None:
-        return {"excluded": False, "reason": None}
+        return {"excluded": True, "reason": "计划时间范围为空，无法判断是否覆盖本月"}
 
     year, mon = int(month[:4]), int(month[5:7])
     last_day = calendar.monthrange(year, mon)[1]
