@@ -1,111 +1,186 @@
-# Step 2: 采集 BP 数据
+# Step 2: 采集 BP 数据（阶段 1-3.5）
 
 > 本文件为强制约束。AI 执行 Step 2 的所有子步骤时必须严格遵守。
 
 ---
 
-## Step 2a-i: 采集全局概览
+## 2-0: 初始化工作目录
+
+**每次运行前必须执行。** 清理同一 groupId + month 的历史残留，不影响其他分组或月份的数据。
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py init_work_dir \
+  --group_id "{groupId}" \
+  --month "{YYYY-MM}"
+```
+
+工作目录结构：
+```
+/tmp/bp_report_{groupId}_{month}/
+  overview.json
+  prev_month.json
+  goals/
+    {goalId}/
+      progress.json
+      goal_evidence.md
+      goal_evidence.json
+      judgment_input_{actionId}.md
+      action_judgments.json     (AI Phase 5 产出)
+      action_judgments.md       (AI Phase 5 产出)
+      kr_analysis.md            (AI Phase 6 产出)
+      goal_lamp.json            (Phase 7 产出)
+      goal_report.md            (AI Phase 10 产出)
+  excluded_goals.md
+  evidence_ledger.md
+  report_header.md              (AI Phase 9 产出)
+  overview_table.md             (AI Phase 12 产出)
+  conclusion.md                 (AI Phase 13 产出)
+  chapter3.md                   (AI Phase 14 产出)
+  chapter4.md                   (AI Phase 14 产出)
+  report_selfcheck.md           (Phase 15 产出)
+```
+
+---
+
+## 2a: 采集全局概览（阶段 1）
 
 ```bash
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect_monthly_overview \
   --group_id "{groupId}" \
-  --month "{YYYY-MM}" \
-  --output "/tmp/monthly_overview_{groupId}.json"
+  --month "{YYYY-MM}"
 ```
 
-**输出 JSON 结构**：
+输出文件：`/tmp/bp_report_{groupId}_{month}/overview.json`
 
 | 字段 | 说明 |
 |------|------|
-| `taskTree` | 精简后的任务树（目标 → 关键成果 → 关键举措） |
-| `goals` | 目标摘要列表，每条含 `goalId`、`name`、`fullLevelNumber`、`planDateRange`、`statusDesc` |
-| `stats` | 统计信息：`totalGoals`（目标数）、`totalNodes`（总节点数） |
-
-执行完成后，**Read** 此文件获取目标列表，确定有多少个目标需要逐个采集。
-
-**容错**：若调用失败，重试一次。仍失败则调用 `update_report_status --status 2`，终止流程。
+| `taskTree` | 精简后的任务树（目标 → KR → 举措） |
+| `goals` | 目标摘要列表，含 `goalId`、`name`、`fullLevelNumber`、`planDateRange`、`statusDesc` |
+| `stats` | `totalGoals`、`totalNodes` |
 
 ---
 
-## Step 2a-ii: 逐目标采集数据
+## 2b: 逐目标采集进展（阶段 2-3）
 
-读取 Step 2a-i 的 `goals` 列表，对每个目标独立采集：
+读取 `overview.json` 的 `goals` 列表，对每个目标调用 `collect_goal_progress`：
 
 ```bash
-python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect_goal_data \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect_goal_progress \
   --group_id "{groupId}" \
   --goal_id "{goalId}" \
-  --month "{YYYY-MM}" \
-  --output "/tmp/goal_data_{groupId}_{goalId}.json"
+  --month "{YYYY-MM}"
 ```
 
 脚本内部自动完成：
-1. 获取该目标的完整详情，并精简为只保留判灯必要字段（measureStandard 去 HTML）
-2. 提取该目标下所有节点 ID（目标自身 + KR + 举措）
-3. 对每个节点查询当月关联汇报列表
-4. 拉取所有去重 reportId 的汇报原文
-5. 构建 `reportIndex`（轻量索引：标题/作者/时间/字数/前 300 字预览 + `relatedNodes` 标注关联的具体 KR/举措名称和编号）
-6. 汇报全文写入全局汇报池 `/tmp/reports_{groupId}/{reportId}.json`（跨目标自动去重）
-7. 输出轻量 JSON 文件（不含汇报全文）
+1. 获取目标详情（`getGoalAndKeyResult`），精简为判灯必要字段
+2. **目标级排除判断**（按 traffic-light-rules.md 规则）
+3. 若目标参与自查 → 逐 KR/举措执行排除判断
+4. 对未排除的 KR/举措调用 `getReportProgressMarkdown`(2.34) 获取聚合证据 Markdown
+5. **黑灯判断**：举措无有效汇报 → 标记 `isBlackLamp: true`
+6. **reportId 提取**：从 Markdown 正则提取所有 `汇报ID：{reportId}`
 
-**输出 JSON 结构**：
+输出文件：`/tmp/bp_report_{groupId}_{month}/goals/{goalId}/progress.json`
 
 | 字段 | 说明 |
 |------|------|
-| `goalId` | 目标 ID |
-| `goalDetail` | 该目标的精简详情（含 KR 列表、举措列表、衡量标准纯文本，去掉 API 冗余字段） |
-| `reportIndex` | reportId → 轻量汇报索引，每条含标题、作者、时间、`charCount`、`contentPreview`（前 300 字）、`relatedNodes`（关联的 KR/举措名称和编号） |
-| `reports` | 按 taskId 分组的 reportId 引用列表（仅含 reportId + type + businessTime，不含全文） |
-| `reportsDir` | 汇报全文所在目录路径 `/tmp/reports_{groupId}/` |
-| `stats` | 统计信息：`nodeCount`、`uniqueReportCount`、`fetchedReportContents` |
-| `errors` | 采集过程中的错误记录（如有） |
+| `goalDetail` | 精简的目标详情（含 KR、举措结构） |
+| `excluded` | 目标是否被排除 |
+| `excludeReason` | 排除原因 |
+| `krData` | `{krId: {name, excluded, progressMarkdown, reportIds, reports}}` |
+| `actionData` | `{actionId: {name, parentKrId, excluded, isBlackLamp, progressMarkdown, reportIds, reports}}` |
+| `allReportIds` | 该目标下所有去重后的 reportId |
+| `stats` | KR/举措数、排除数、黑灯数 |
 
-**产出文件一览**：
-
-```
-/tmp/monthly_overview_{groupId}.json         -- 全局概览
-/tmp/goal_data_{groupId}_{goalId_1}.json     -- 目标1 数据
-/tmp/goal_data_{groupId}_{goalId_2}.json     -- 目标2 轻量索引
-...
-/tmp/reports_{groupId}/                       -- 全局汇报池（所有目标共享，按 reportId 去重）
-  {reportId_1}.json                           -- 单条汇报纯文本 + HTML 全文
-  {reportId_2}.json
-  ...
-```
-
-**容错**：每个目标采集完成后，检查输出的 `errors` 数组。若 `errors` 非空但 `goalDetail` 和 `reportIndex` 已获取 → 记录警告，继续下一个目标。若 `goalDetail` 缺失 → 重试一次该目标。仍失败则跳过该目标并在最终报告中注明。
+**容错**：若 `getReportProgressMarkdown` 调用失败，记录到 `errors` 数组，该举措标记黑灯。goalDetail 获取失败则重试一次，仍失败则跳过该目标。
 
 ---
 
-## Step 2b: 采集上月汇报与评价
+## 2c: 构建目标级证据台账（阶段 3.5）
 
-**`--month` 参数为当前汇报月份的上一个月**，由 AI 根据 `report_month` 自行计算。计算规则：
-- `report_month=2026-03` → 传 `2026-02`
-- `report_month=2026-01` → 传 `2025-12`（跨年递减）
+**在 AI 判灯之前执行。** 为每个参与自查的目标构建证据台账，分配 R 编号。
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py build_goal_evidence \
+  --group_id "{groupId}" \
+  --goal_id "{goalId}" \
+  --month "{YYYY-MM}" \
+  --employee_id "{employeeId}" \
+  --r_start_index "{起始序号}"
+```
+
+- `--employee_id`：用于判断证据级别（本人=主证据，他人=辅证）
+- `--r_start_index`：R 编号起始序号，跨目标连续递增。第 1 个目标传 `1`，后续目标传前一个目标返回的 `nextRIndex`
+
+脚本内部自动完成：
+1. 读取 `progress.json`，汇总该目标下所有 reportId（去重）
+2. 分配 R 编号（`R{MM}{序号}`，全局连续）
+3. 判断证据级别：`authorId == employeeId` → 主证据，否则 → 辅证
+4. 按节点归集：每个 KR/举措关联了哪些 R 编号
+5. 评估证据充分性
+
+输出文件：
+- `goal_evidence.md`：Markdown 格式的目标级证据台账（AI 分析时引用）
+- `goal_evidence.json`：结构化数据（含 rCodeMap，后续阶段使用）
+
+返回值中 `nextRIndex` 用于下一个目标的起始编号。
+
+---
+
+## 2d: 组装判灯材料包（阶段 4）
+
+为每个参与自查的举措生成判灯材料包 Markdown，供 AI 在 Phase 5 中消费。
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py build_judgment_input \
+  --group_id "{groupId}" \
+  --goal_id "{goalId}" \
+  --month "{YYYY-MM}"
+```
+
+脚本内部自动完成：
+1. 读取 `progress.json` + `goal_evidence.json`
+2. 对每个非排除、非黑灯的举措，生成判灯材料包，包含：
+   - BP 锚点（目标/KR/举措名称编号、KR 衡量标准）
+   - 关联证据 R 编号
+   - 汇报推进情况原文（`progressMarkdown`）
+
+输出文件：每个举措一个 `judgment_input_{actionId}.md`
+
+---
+
+## 2e: 采集上月汇报与评价
+
+`--month` 参数为当前汇报月份的上一个月，`--report_month` 传当前月份以定位工作目录。
 
 ```bash
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect_previous_month_data \
   --group_id "{groupId}" \
   --month "{上月YYYY-MM}" \
-  --output "/tmp/prev_month_data_{groupId}.json"
+  --report_month "{当月YYYY-MM}"
 ```
 
-脚本内部自动完成：
-1. 调用 `listMonthlyReports` 获取上月所有月报的 `reportTypeDesc` + `reportRecordId`
-2. 对每个 `reportRecordId`，通过工作协同接口拉取汇报正文
-3. 调用 `getMonthlyEvaluation` 获取上月评价的翻译后 Markdown（自评 + 上级评价）
-4. 将全部数据写入一个聚合 JSON 文件
+输出文件：`/tmp/bp_report_{groupId}_{month}/prev_month.json`
 
-**输出 JSON 结构**：
+若首月无上月数据，跳过此步骤。
 
-| 字段 | 说明 |
-|------|------|
-| `reports` | 上月各类型月报列表，每条含 `reportTypeDesc`、`reportRecordId`、`title`、`charCount`、`contentPreview`（前 500 字纯文本预览）。全文存入 `/tmp/reports_{groupId}/prev_{reportRecordId}.json` |
-| `evaluations` | 上月评价 Markdown 列表，每条含 `evaluationTypeDesc`（自评/上级评价）和 `evaluationMarkdown` |
-| `stats` | 统计信息：报告数、评价数 |
-| `errors` | 采集过程中的错误记录（如有） |
+---
 
-**使用方式**：
-- 上月报告正文作为本月汇报的纵向对比基线
-- 上月评价 Markdown 中的评分和评语可用于本月灯色判断的辅助参考
-- 若上月数据为空（首月汇报），跳过此步骤，不影响后续流程
+## 完成后产出一览
+
+```
+/tmp/bp_report_{groupId}_{month}/
+  overview.json                          ← 2a
+  prev_month.json                        ← 2e (可选)
+  goals/
+    {goalId_1}/
+      progress.json                      ← 2b
+      goal_evidence.md                   ← 2c
+      goal_evidence.json                 ← 2c
+      judgment_input_{actionId_1}.md     ← 2d
+      judgment_input_{actionId_2}.md     ← 2d
+    {goalId_2}/
+      progress.json                      ← 2b
+      ...
+```
+
+**完成后输出**：`Step 2 完成 — {N} 个目标数据已采集，{M} 个参与自查，{K} 份证据已编号`

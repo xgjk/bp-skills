@@ -1,59 +1,67 @@
-# Step 4: 保存草稿 → 保存
+# Step 4: 拼接报告 → 保存（阶段 15-16）
 
 > 本文件为强制约束。AI 执行 Step 4 时必须严格遵守。
 
 ---
 
-> **⚠️ 两个接口返回的 ID 含义不同，严禁混淆：**
->
-> | 接口 | 返回的 `data` | 含义 | 用途 |
-> |------|---------------|------|------|
-> | `save_draft` | 工作汇报草稿 ID | 工作协同系统中的草稿记录 ID | **用于生成 `huibao://view?id=` 链接、传给 `save_monthly_report --report_record_id`** |
-> | `save_monthly_report` | BP 月报 ID | BP 系统中的月报记录 ID | 仅供 BP 系统内部使用，**不可用于生成汇报链接** |
->
-> `report_record_id` **只能**从 `save_draft` 的返回结果中获取，**严禁**使用 `save_monthly_report` 返回的 ID。
+## 4a: 拼接最终报告（阶段 15）
 
----
-
-## 保存汇报草稿
-
-**校验通过后直接保存草稿**，无需等待用户确认。
+**脚本执行**：
 
 ```bash
-python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_draft \
-  --receiver_emp_id "{employeeId}" \
-  --title "{员工姓名} {YYYY年M月} BP自查报告" \
-  --content_file "/tmp/report_selfcheck_{groupId}.md"
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assemble_report \
+  --group_id "{groupId}" \
+  --month "{YYYY-MM}"
 ```
 
-> `--receiver_emp_id` 即目标员工的 employeeId，由用户提供。
+脚本按固定顺序拼接以下文件：
 
-> `--sender_id` 无需手动指定。脚本自动通过接收人的 empId 查询组织架构获取 corpId，匹配对应企业的 AI 助理。
+| 顺序 | 来源文件 | 章节 |
+|------|---------|------|
+| 1 | `report_header.md` | 报告头部 |
+| 2 | `conclusion.md` | 1. 总体自查结论 |
+| 3 | `overview_table.md` | 2.1 目标清单总览 |
+| 4 | 各 `goals/{goalId}/goal_report.md` | 2.2 目标明细（按目标顺序） |
+| 5 | `excluded_goals.md` | 未参与目标说明 |
+| 6 | `chapter3.md` | 3. 年度结果预判评分 |
+| 7 | `chapter4.md` | 4. 月度汇报入口 |
+| 8 | `evidence_ledger.md` | 附录：证据索引 |
 
-> `save_draft` 仅将汇报保存为草稿状态，不会正式发出。如需正式发出，需后续调用草稿提交接口（`POST /work-report/draftBox/submit/{id}`）。
-
-**立即记录**返回 JSON 中的 `report_record_id` 字段 → 记为 `report_record_id`。API 返回的 `data` 直接就是该 ID 字符串（如 `"2045377196335587329"`），脚本已自动提取到顶层 `report_record_id` 字段。
-
-生成报告链接：`huibao://view?id={report_record_id}`
+输出：`/tmp/bp_report_{groupId}_{month}/report_selfcheck.md`
 
 ---
 
-## 保存到 BP 系统
+## 4b: 合规性校验
 
-将 `save_draft` 获得的 `report_record_id` 传入 `--report_record_id`：
+**前置加载**（若尚未加载）：读取 [validation-rules.md](../rules/validation-rules.md)
+
+对 `report_selfcheck.md` 执行 16 项合规校验清单。**全部通过后方可保存。**
+
+**校验失败回退**：以目标为粒度定位失败项，仅回退修正该目标的 `goal_report.md`，
+然后重新执行 `assemble_report`。同一目标最多重试 2 次。
+
+---
+
+## 4c: 保存到 BP 系统（阶段 16）
+
+**不再通过 save_draft 发送草稿**，直接保存到 BP 系统：
 
 ```bash
-python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_monthly_report \
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_openclaw_report \
   --group_id "{groupId}" \
   --month "{YYYY-MM}" \
-  --content_file "/tmp/report_selfcheck_{groupId}.md" \
-  --report_record_id "{report_record_id}"
+  --content_file "/tmp/bp_report_{groupId}_{month}/report_selfcheck.md"
 ```
 
-`save_monthly_report` 默认将 `generateStatus` 设为 `1=成功`，保存成功即代表流程完成，**无需再单独调用 `update_report_status --status 1`**。
+保存成功后，调用 `update_report_status --status 1` 标记成功（若 API 未自动标记）。
 
-> **再次提醒**：`save_monthly_report` 返回的 `data` 是 BP 月报 ID，与 `report_record_id` 无关。Step 4 完成后向用户输出的 `report_record_id` 必须是前面从 `save_draft` 获取的值。
+**完成后输出**：`Step 4 完成 — 报告已保存到 BP 系统`
 
 ---
 
+## 失败处理
 
+若保存失败：
+1. 保留 `report_selfcheck.md` 文件
+2. 调用 `update_report_status --status 2 --fail_reason "保存失败: {错误信息}"`
+3. 提示用户可手动重试

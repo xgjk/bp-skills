@@ -5,15 +5,25 @@ Usage:
     python monthly_report_api.py <action> [options]
 
 Actions:
-    collect_monthly_overview    Fetch task tree + goal list (lightweight, per-goal workflow step 1)
-    collect_goal_data           Collect BP detail + report index for a single goal (lightweight JSON + full text in report pool)
-    collect_monthly_data        [Legacy] Aggregate all BP data + reports into a single JSON (new flow must not use)
-    collect_previous_month_data Aggregate previous month's reports + evaluations as reference context
-    get_report_content          Get raw report body from API by report ID
-    get_report_text             Read a single report's plain-text content from local report pool (or fallback to API)
-    save_draft                  Save monthly report as draft via draftBox API
-    save_monthly_report         Save monthly report to BP system (2.22 saveMonthlyReport)
-    update_report_status        Update monthly report generation status (0=generating, 1=success, 2=failed)
+    init_work_dir               Initialize per-run working directory /tmp/bp_report_{groupId}_{month}/
+    collect_monthly_overview     Fetch task tree + goal list (lightweight, per-goal workflow step 1)
+    collect_goal_progress        [Phase 2-3] Exclusion + getReportProgressMarkdown + black-lamp + reportId extraction
+    collect_previous_month_data  Aggregate previous month's reports + evaluations as reference context
+    build_goal_evidence          [Phase 3.5] Build goal-level evidence ledger with R-code assignment
+    build_judgment_input         [Phase 4] Assemble judgment material package for each action
+    aggregate_lamp_colors        [Phase 7] Aggregate action lamp colors -> goal lamp color
+    build_evidence_ledger        [Phase 8] Merge all goal evidence ledgers into global ledger
+    assemble_report              [Phase 15] Splice final report from intermediate artifacts
+    save_openclaw_report         [Phase 16] Save report to BP via saveOpenClawReport (2.33)
+    update_report_status         Update monthly report generation status (0=generating, 1=success, 2=failed)
+
+    # Legacy (kept for backward compat, new flow should not use):
+    collect_goal_data            [Legacy] Collect BP detail + report index for a single goal
+    collect_monthly_data         [Legacy] Aggregate all BP data + reports into a single JSON
+    get_report_content           Get raw report body from API by report ID
+    get_report_text              Read a single report's plain-text content from local report pool
+    save_draft                   Save monthly report as draft via draftBox API
+    save_monthly_report          Save monthly report to BP system (2.22 saveMonthlyReport)
 
 Environment:
     BP_OPEN_API_APP_KEY       Authentication key (required)
@@ -25,6 +35,7 @@ import calendar
 import json
 import os
 import re
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -59,6 +70,13 @@ DEFAULT_SEND_APP_KEY = SENDER_TO_APP_KEY[DEFAULT_SENDER_ID]
 
 def _log(msg):
     print(f"[progress] {msg}", file=sys.stderr)
+
+
+def _strip_html(text):
+    """Remove HTML tags from text, e.g. <p style="...">content</p> -> content."""
+    if not text:
+        return ""
+    return re.sub(r'<[^>]+>', '', text).strip()
 
 
 def _resolve_sender(receiver_emp_id):
@@ -379,6 +397,110 @@ def _build_node_lookup(goal_detail):
     return lookup
 
 
+# ─── Working directory helpers ────────────────────────────────────
+
+def _work_dir(group_id, month):
+    """Return the per-run working directory path."""
+    return f"/tmp/bp_report_{group_id}_{month}"
+
+
+def _goal_dir(group_id, month, goal_id):
+    """Return the per-goal sub-directory path."""
+    return os.path.join(_work_dir(group_id, month), "goals", str(goal_id))
+
+
+def _parse_plan_date_range(plan_date_range):
+    """Parse 'yyyy-MM-dd ~ yyyy-MM-dd' into (start_str, end_str) or (None, None)."""
+    if not plan_date_range or "~" not in plan_date_range:
+        return None, None
+    parts = plan_date_range.split("~")
+    start = parts[0].strip() if len(parts) > 0 else None
+    end = parts[1].strip() if len(parts) > 1 else None
+    return start or None, end or None
+
+
+def _judge_exclusion(plan_date_range, status_desc, month):
+    """Determine whether a node should be excluded from this month's review.
+
+    Returns: {"excluded": bool, "reason": str | None}
+    Rules (hit-and-stop):
+    1. statusDesc == "草稿" -> exclude
+    2. planStartDate and planEndDate both empty -> participate (lenient)
+    3. planStartDate > month last day -> exclude
+    4. planEndDate < month first day -> exclude
+    5. else -> participate
+    """
+    if status_desc == "草稿":
+        return {"excluded": True, "reason": "草稿未正式发布"}
+
+    start_str, end_str = _parse_plan_date_range(plan_date_range)
+    if start_str is None and end_str is None:
+        return {"excluded": False, "reason": None}
+
+    year, mon = int(month[:4]), int(month[5:7])
+    last_day = calendar.monthrange(year, mon)[1]
+    month_first = f"{year:04d}-{mon:02d}-01"
+    month_last = f"{year:04d}-{mon:02d}-{last_day:02d}"
+
+    if start_str and start_str > month_last:
+        return {"excluded": True, "reason": f"计划开始日期({start_str})晚于本月末({month_last})"}
+    if end_str and end_str < month_first:
+        return {"excluded": True, "reason": f"计划结束日期({end_str})早于本月初({month_first})"}
+
+    return {"excluded": False, "reason": None}
+
+
+def _judge_black_lamp(progress_markdown):
+    """Check if an action has no valid evidence (black lamp)."""
+    if not progress_markdown or not progress_markdown.strip():
+        return True
+    if progress_markdown.strip() == "# 汇报推进各情况总结":
+        return True
+    return False
+
+
+def _extract_reports_from_markdown(markdown):
+    """Extract report metadata from getReportProgressMarkdown aggregated Markdown.
+
+    Returns: [{"reportId": "123", "title": "...", "authorId": "..."}, ...]
+    """
+    if not markdown:
+        return []
+    reports = []
+    sections = re.split(r'^---$', markdown, flags=re.MULTILINE)
+    for section in sections:
+        rid_match = re.search(r'- 汇报ID：(\d+)', section)
+        if rid_match:
+            title_match = re.search(r'^## (.+)$', section, re.MULTILINE)
+            author_match = re.search(r'- 汇报人ID：(\d+)', section)
+            reports.append({
+                "reportId": rid_match.group(1),
+                "title": title_match.group(1).strip() if title_match else "",
+                "authorId": author_match.group(1) if author_match else "",
+            })
+    return reports
+
+
+# ─── init_work_dir ───────────────────────────────────────────────
+
+def init_work_dir(args):
+    """Initialize the per-run working directory. Cleans up previous run for same group+month."""
+    if not args.group_id:
+        return {"error": "group_id is required for init_work_dir"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for init_work_dir"}
+
+    wd = _work_dir(args.group_id, args.month)
+    if os.path.exists(wd):
+        _log(f"Removing previous work dir: {wd}")
+        shutil.rmtree(wd)
+    os.makedirs(wd, exist_ok=True)
+    os.makedirs(os.path.join(wd, "goals"), exist_ok=True)
+
+    _log(f"Work dir initialized: {wd}")
+    return {"success": True, "workDir": wd}
+
+
 # ─── collect_monthly_overview ─────────────────────────────────────
 
 def collect_monthly_overview(args):
@@ -413,7 +535,9 @@ def collect_monthly_overview(args):
         "stats": {"totalGoals": len(goals), "totalNodes": len(all_ids)},
     }
 
-    output_path = args.output or f"/tmp/monthly_overview_{args.group_id}.json"
+    wd = _work_dir(args.group_id, args.month)
+    os.makedirs(wd, exist_ok=True)
+    output_path = args.output or os.path.join(wd, "overview.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
@@ -421,7 +545,702 @@ def collect_monthly_overview(args):
     return {"success": True, "outputFile": output_path, "stats": output["stats"]}
 
 
-# ─── collect_goal_data ────────────────────────────────────────────
+# ─── collect_goal_progress (Phase 2-3) ────────────────────────────
+
+def collect_goal_progress(args):
+    """[Phase 2-3] For a single goal: exclusion check + fetch evidence Markdown + black lamp + reportId extraction.
+
+    Replaces collect_goal_data in the new flow. Uses getReportProgressMarkdown (2.34)
+    instead of fetching individual reports.
+
+    Outputs: goals/{goalId}/progress.json with structure, exclusion state,
+    progressMarkdown per action/KR, and extracted reportIds.
+    """
+    if not args.goal_id:
+        return {"error": "goal_id is required for collect_goal_progress"}
+    if not args.group_id:
+        return {"error": "group_id is required for collect_goal_progress"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for collect_goal_progress"}
+
+    errors = []
+
+    _log(f"Fetching goal detail: {args.goal_id}")
+    detail = _request("GET", "/bp/task/v2/getGoalAndKeyResult", params={"id": args.goal_id})
+    if not detail.get("success"):
+        return {"error": f"Failed to fetch goal detail: {detail.get('error')}"}
+
+    goal_detail_raw = detail["data"]
+    goal_detail = _slim_goal_detail(goal_detail_raw)
+
+    goal_exclusion = _judge_exclusion(
+        goal_detail.get("planDateRange", ""),
+        goal_detail.get("statusDesc", ""),
+        args.month,
+    )
+
+    if goal_exclusion["excluded"]:
+        _log(f"Goal {args.goal_id} excluded: {goal_exclusion['reason']}")
+        output = {
+            "goalId": args.goal_id,
+            "groupId": args.group_id,
+            "month": args.month,
+            "goalDetail": goal_detail,
+            "excluded": True,
+            "excludeReason": goal_exclusion["reason"],
+            "krData": {},
+            "actionData": {},
+        }
+    else:
+        kr_data = {}
+        action_data = {}
+        all_report_ids = set()
+
+        kr_list = goal_detail_raw.get("keyResultList") or goal_detail_raw.get("keyResults") or []
+        for kr in kr_list:
+            kr_id = str(kr.get("id", ""))
+            if not kr_id:
+                continue
+
+            kr_exclusion = _judge_exclusion(
+                kr.get("planDateRange", ""),
+                kr.get("statusDesc", ""),
+                args.month,
+            )
+
+            kr_md = ""
+            kr_reports = []
+            if not kr_exclusion["excluded"]:
+                _log(f"  Fetching progress markdown for KR {kr_id}")
+                md_result = _request("GET", "/bp/task/reportProgress",
+                                     params={"taskId": kr_id, "month": args.month})
+                if md_result.get("success"):
+                    kr_md = md_result.get("data", "") or ""
+                    kr_reports = _extract_reports_from_markdown(kr_md)
+                    for r in kr_reports:
+                        all_report_ids.add(r["reportId"])
+                else:
+                    errors.append({"step": "kr_progress", "id": kr_id, "error": md_result.get("error")})
+
+            slim_kr = _slim_kr(kr)
+            kr_data[kr_id] = {
+                "name": kr.get("name", ""),
+                "fullLevelNumber": kr.get("fullLevelNumber", ""),
+                "measureStandard": slim_kr.get("measureStandard", ""),
+                "planDateRange": kr.get("planDateRange", ""),
+                "statusDesc": kr.get("statusDesc", ""),
+                "excluded": kr_exclusion["excluded"],
+                "excludeReason": kr_exclusion.get("reason"),
+                "progressMarkdown": kr_md,
+                "reportIds": [r["reportId"] for r in kr_reports],
+                "reports": kr_reports,
+            }
+
+            action_list = kr.get("actionList") or kr.get("actions") or []
+            for action in action_list:
+                action_id = str(action.get("id", ""))
+                if not action_id:
+                    continue
+
+                action_exclusion = _judge_exclusion(
+                    action.get("planDateRange", ""),
+                    action.get("statusDesc", ""),
+                    args.month,
+                )
+
+                action_md = ""
+                action_reports = []
+                is_black = False
+                if not action_exclusion["excluded"]:
+                    _log(f"  Fetching progress markdown for action {action_id}")
+                    md_result = _request("GET", "/bp/task/reportProgress",
+                                         params={"taskId": action_id, "month": args.month})
+                    if md_result.get("success"):
+                        action_md = md_result.get("data", "") or ""
+                        action_reports = _extract_reports_from_markdown(action_md)
+                        for r in action_reports:
+                            all_report_ids.add(r["reportId"])
+                        is_black = _judge_black_lamp(action_md)
+                    else:
+                        errors.append({"step": "action_progress", "id": action_id, "error": md_result.get("error")})
+                        is_black = True
+
+                action_data[action_id] = {
+                    "name": action.get("name", ""),
+                    "fullLevelNumber": action.get("fullLevelNumber", ""),
+                    "parentKrId": kr_id,
+                    "planDateRange": action.get("planDateRange", ""),
+                    "statusDesc": action.get("statusDesc", ""),
+                    "excluded": action_exclusion["excluded"],
+                    "excludeReason": action_exclusion.get("reason"),
+                    "isBlackLamp": is_black,
+                    "progressMarkdown": action_md,
+                    "reportIds": [r["reportId"] for r in action_reports],
+                    "reports": action_reports,
+                }
+
+        output = {
+            "goalId": args.goal_id,
+            "groupId": args.group_id,
+            "month": args.month,
+            "goalDetail": goal_detail,
+            "excluded": False,
+            "excludeReason": None,
+            "krData": kr_data,
+            "actionData": action_data,
+            "allReportIds": sorted(all_report_ids),
+            "stats": {
+                "krCount": len(kr_data),
+                "actionCount": len(action_data),
+                "uniqueReportCount": len(all_report_ids),
+                "excludedKrCount": sum(1 for v in kr_data.values() if v["excluded"]),
+                "excludedActionCount": sum(1 for v in action_data.values() if v["excluded"]),
+                "blackLampActionCount": sum(1 for v in action_data.values() if v.get("isBlackLamp")),
+            },
+        }
+
+    if errors:
+        output["errors"] = errors
+
+    gd = _goal_dir(args.group_id, args.month, args.goal_id)
+    os.makedirs(gd, exist_ok=True)
+    output_path = args.output or os.path.join(gd, "progress.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    _log(f"Done! Goal progress written to {output_path}")
+    return {"success": True, "outputFile": output_path, "excluded": output["excluded"],
+            "stats": output.get("stats", {})}
+
+
+# ─── build_goal_evidence (Phase 3.5) ─────────────────────────────
+
+def build_goal_evidence(args):
+    """[Phase 3.5] Build goal-level evidence ledger with R-code assignment.
+
+    Reads progress.json for a goal, deduplicates reports, assigns R-codes,
+    determines evidence level (primary/secondary), and writes goal_evidence.md.
+    """
+    if not args.goal_id:
+        return {"error": "goal_id is required for build_goal_evidence"}
+    if not args.group_id:
+        return {"error": "group_id is required for build_goal_evidence"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for build_goal_evidence"}
+
+    r_start = int(getattr(args, "r_start_index", None) or 1)
+    employee_id = getattr(args, "employee_id", None) or ""
+
+    gd = _goal_dir(args.group_id, args.month, args.goal_id)
+    progress_path = os.path.join(gd, "progress.json")
+    if not os.path.isfile(progress_path):
+        return {"error": f"progress.json not found: {progress_path}. Run collect_goal_progress first."}
+
+    with open(progress_path, "r", encoding="utf-8") as f:
+        progress = json.load(f)
+
+    if progress.get("excluded"):
+        md = f"## 目标: {progress['goalDetail'].get('name', '')} 证据台账\n\n> 该目标不参与本月自查，无证据台账。\n"
+        output_path = os.path.join(gd, "goal_evidence.md")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(md)
+        return {"success": True, "outputFile": output_path, "nextRIndex": r_start, "rCodeCount": 0}
+
+    seen_report_ids = {}
+    month_prefix = args.month[5:7]
+
+    node_report_map = {}
+
+    for kr_id, kr_info in progress.get("krData", {}).items():
+        if kr_info.get("excluded"):
+            continue
+        for r in kr_info.get("reports", []):
+            rid = r["reportId"]
+            if rid not in seen_report_ids:
+                is_primary = (r.get("authorId", "") == employee_id) if employee_id else True
+                seen_report_ids[rid] = {
+                    "reportId": rid,
+                    "title": r.get("title", ""),
+                    "authorId": r.get("authorId", ""),
+                    "level": "主证据" if is_primary else "辅证",
+                    "rCode": None,
+                    "nodes": [],
+                }
+            seen_report_ids[rid]["nodes"].append({
+                "nodeId": kr_id,
+                "nodeName": kr_info.get("name", ""),
+                "nodeNumber": kr_info.get("fullLevelNumber", ""),
+                "nodeType": "关键成果",
+            })
+            node_report_map.setdefault(kr_id, []).append(rid)
+
+    for action_id, action_info in progress.get("actionData", {}).items():
+        if action_info.get("excluded"):
+            continue
+        for r in action_info.get("reports", []):
+            rid = r["reportId"]
+            if rid not in seen_report_ids:
+                is_primary = (r.get("authorId", "") == employee_id) if employee_id else True
+                seen_report_ids[rid] = {
+                    "reportId": rid,
+                    "title": r.get("title", ""),
+                    "authorId": r.get("authorId", ""),
+                    "level": "主证据" if is_primary else "辅证",
+                    "rCode": None,
+                    "nodes": [],
+                }
+            seen_report_ids[rid]["nodes"].append({
+                "nodeId": action_id,
+                "nodeName": action_info.get("name", ""),
+                "nodeNumber": action_info.get("fullLevelNumber", ""),
+                "nodeType": "举措",
+            })
+            node_report_map.setdefault(action_id, []).append(rid)
+
+    r_index = r_start
+    r_code_map = {}
+    for rid in sorted(seen_report_ids.keys()):
+        r_code = f"R{month_prefix}{r_index:02d}"
+        seen_report_ids[rid]["rCode"] = r_code
+        r_code_map[rid] = r_code
+        r_index += 1
+
+    goal_name = progress["goalDetail"].get("name", "")
+    goal_number = progress["goalDetail"].get("fullLevelNumber", "")
+    primary_count = sum(1 for v in seen_report_ids.values() if v["level"] == "主证据")
+    secondary_count = sum(1 for v in seen_report_ids.values() if v["level"] == "辅证")
+
+    lines = [
+        f"## 目标 {goal_number}: {goal_name} 证据台账\n",
+        "### 证据概览",
+        f"- 有效汇报总数：{len(seen_report_ids)} 份（去重后）",
+        f"- 其中本人主证据：{primary_count} 份、他人辅证：{secondary_count} 份\n",
+        "### R 编号索引",
+        "| R 编号 | 汇报标题 | 证据级别 | 汇报链接 | 关联节点 |",
+        "|--------|---------|---------|---------|---------|",
+    ]
+    for rid in sorted(seen_report_ids.keys()):
+        info = seen_report_ids[rid]
+        nodes_str = " / ".join(f"{n['nodeNumber']} {n['nodeName']}" for n in info["nodes"])
+        lines.append(
+            f"| {info['rCode']} | 《{info['title']}》 | {info['level']} "
+            f"| [查看汇报](huibao://view?id={rid}) | {nodes_str} |"
+        )
+
+    lines.append("")
+    lines.append("### 按节点归集")
+
+    for kr_id, kr_info in progress.get("krData", {}).items():
+        if kr_info.get("excluded"):
+            continue
+        rids = list(dict.fromkeys(node_report_map.get(kr_id, [])))
+        r_codes = [r_code_map[rid] for rid in rids if rid in r_code_map]
+        has_primary = any(seen_report_ids[rid]["level"] == "主证据" for rid in rids if rid in seen_report_ids)
+        sufficiency = "充分" if has_primary else ("基本充分" if r_codes else "无")
+        lines.append(f"#### KR {kr_info.get('fullLevelNumber', '')}: {kr_info.get('name', '')}")
+        lines.append(f"- 关联证据：{', '.join(r_codes) if r_codes else '无'}")
+        lines.append(f"- 证据充分性：{sufficiency}")
+
+        for action_id, action_info in progress.get("actionData", {}).items():
+            if action_info.get("excluded") or action_info.get("parentKrId") != kr_id:
+                continue
+            a_rids = list(dict.fromkeys(node_report_map.get(action_id, [])))
+            a_r_codes = [r_code_map[rid] for rid in a_rids if rid in r_code_map]
+            a_has_primary = any(seen_report_ids[rid]["level"] == "主证据" for rid in a_rids if rid in seen_report_ids)
+            a_sufficiency = "充分" if a_has_primary else ("基本充分" if a_r_codes else "无")
+            is_black = action_info.get("isBlackLamp", False)
+            lines.append(f"#### 举措 {action_info.get('fullLevelNumber', '')}: {action_info.get('name', '')}")
+            lines.append(f"- 关联证据：{', '.join(a_r_codes) if a_r_codes else '无'}")
+            lines.append(f"- 证据充分性：{a_sufficiency}")
+            if is_black:
+                lines.append("- 黑灯标记：是")
+        lines.append("")
+
+    md_content = "\n".join(lines)
+    output_path = os.path.join(gd, "goal_evidence.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    evidence_json = {
+        "goalId": args.goal_id,
+        "rCodeMap": {rid: info["rCode"] for rid, info in seen_report_ids.items()},
+        "reports": {rid: info for rid, info in seen_report_ids.items()},
+        "nodeReportMap": node_report_map,
+    }
+    evidence_json_path = os.path.join(gd, "goal_evidence.json")
+    with open(evidence_json_path, "w", encoding="utf-8") as f:
+        json.dump(evidence_json, f, ensure_ascii=False, indent=2)
+
+    _log(f"Done! Goal evidence ledger written to {output_path} ({len(seen_report_ids)} reports, R{month_prefix}{r_start:02d}-R{month_prefix}{r_index - 1:02d})")
+    return {
+        "success": True, "outputFile": output_path, "evidenceJsonFile": evidence_json_path,
+        "nextRIndex": r_index, "rCodeCount": len(seen_report_ids),
+    }
+
+
+# ─── build_judgment_input (Phase 4) ──────────────────────────────
+
+def build_judgment_input(args):
+    """[Phase 4] Assemble judgment material package Markdown for each action under a goal.
+
+    Reads progress.json + goal_evidence.json, generates a Markdown package per action
+    containing BP anchor info, evidence Markdown, R-codes, and KR measurement standard.
+    """
+    if not args.goal_id:
+        return {"error": "goal_id is required for build_judgment_input"}
+    if not args.group_id:
+        return {"error": "group_id is required for build_judgment_input"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for build_judgment_input"}
+
+    gd = _goal_dir(args.group_id, args.month, args.goal_id)
+    progress_path = os.path.join(gd, "progress.json")
+    evidence_json_path = os.path.join(gd, "goal_evidence.json")
+
+    if not os.path.isfile(progress_path):
+        return {"error": f"progress.json not found: {progress_path}"}
+    if not os.path.isfile(evidence_json_path):
+        return {"error": f"goal_evidence.json not found: {evidence_json_path}"}
+
+    with open(progress_path, "r", encoding="utf-8") as f:
+        progress = json.load(f)
+    with open(evidence_json_path, "r", encoding="utf-8") as f:
+        evidence = json.load(f)
+
+    if progress.get("excluded"):
+        return {"success": True, "message": "Goal excluded, no judgment input needed.", "files": []}
+
+    r_code_map = evidence.get("rCodeMap", {})
+    node_report_map = evidence.get("nodeReportMap", {})
+    goal_detail = progress.get("goalDetail", {})
+
+    files = []
+    for action_id, action_info in progress.get("actionData", {}).items():
+        if action_info.get("excluded"):
+            continue
+        if action_info.get("isBlackLamp"):
+            continue
+
+        parent_kr_id = action_info.get("parentKrId", "")
+        kr_info = progress.get("krData", {}).get(parent_kr_id, {})
+
+        action_rids = list(dict.fromkeys(node_report_map.get(action_id, [])))
+        action_r_codes = [f"{r_code_map[rid]}(huibao://view?id={rid})" for rid in action_rids if rid in r_code_map]
+
+        lines = [
+            f"# 判灯材料包：{action_info.get('fullLevelNumber', '')} {action_info.get('name', '')}",
+            "",
+            "## BP 锚点",
+            f"- 目标：{goal_detail.get('fullLevelNumber', '')} {goal_detail.get('name', '')}",
+            f"- 所属 KR：{kr_info.get('fullLevelNumber', '')} {kr_info.get('name', '')}",
+            f"- KR 衡量标准：{kr_info.get('measureStandard', '未设置')}",
+            f"- 举措编号：{action_info.get('fullLevelNumber', '')}",
+            f"- 举措名称：{action_info.get('name', '')}",
+            f"- 计划时间：{action_info.get('planDateRange', '未设置')}",
+            f"- 当前状态：{action_info.get('statusDesc', '')}",
+            "",
+            f"## 关联证据 R 编号",
+            ", ".join(action_r_codes) if action_r_codes else "无关联证据",
+            "",
+            "## BP下汇报情况",
+            "",
+            action_info.get("progressMarkdown", "") or "（无汇报内容）",
+        ]
+
+        md_content = "\n".join(lines)
+        fname = f"judgment_input_{action_id}.md"
+        fpath = os.path.join(gd, fname)
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.write(md_content)
+        files.append(fpath)
+
+    _log(f"Done! {len(files)} judgment input files written to {gd}")
+    return {"success": True, "files": files, "count": len(files)}
+
+
+# ─── aggregate_lamp_colors (Phase 7) ─────────────────────────────
+
+def aggregate_lamp_colors(args):
+    """[Phase 7] Aggregate action lamp colors to goal-level lamp color.
+
+    Reads action_judgments.json (produced by AI in Phase 5-6, containing per-action lamp colors),
+    applies goal-level aggregation rule: red > yellow > black > green.
+    """
+    if not args.goal_id:
+        return {"error": "goal_id is required for aggregate_lamp_colors"}
+    if not args.group_id:
+        return {"error": "group_id is required for aggregate_lamp_colors"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for aggregate_lamp_colors"}
+
+    gd = _goal_dir(args.group_id, args.month, args.goal_id)
+    judgments_path = os.path.join(gd, "action_judgments.json")
+    if not os.path.isfile(judgments_path):
+        return {"error": f"action_judgments.json not found: {judgments_path}. AI must produce this file in Phase 5."}
+
+    with open(judgments_path, "r", encoding="utf-8") as f:
+        judgments = json.load(f)
+
+    lamp_priority = {"red": 4, "yellow": 3, "black": 2, "green": 1}
+    lamp_names = {"red": "🔴", "yellow": "🟡", "black": "⚫", "green": "🟢"}
+
+    highest = "green"
+    counts = {"green": 0, "yellow": 0, "red": 0, "black": 0}
+
+    for action_id, info in judgments.items():
+        lamp = info.get("lamp", "green")
+        counts[lamp] = counts.get(lamp, 0) + 1
+        if lamp_priority.get(lamp, 0) > lamp_priority.get(highest, 0):
+            highest = lamp
+
+    result = {
+        "goalId": args.goal_id,
+        "goalLamp": highest,
+        "goalLampEmoji": lamp_names.get(highest, ""),
+        "counts": counts,
+    }
+
+    output_path = os.path.join(gd, "goal_lamp.json")
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    _log(f"Done! Goal lamp: {lamp_names[highest]} ({highest}), counts={counts}")
+    return {"success": True, **result, "outputFile": output_path}
+
+
+# ─── build_evidence_ledger (Phase 8) ─────────────────────────────
+
+def build_evidence_ledger(args):
+    """[Phase 8] Merge all goal evidence ledgers into global ledger for appendix.
+
+    Reads each goal's goal_evidence.md/json, merges into a single evidence_ledger.md.
+    Also assigns RP codes from previous month data.
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for build_evidence_ledger"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for build_evidence_ledger"}
+
+    wd = _work_dir(args.group_id, args.month)
+    goals_dir = os.path.join(wd, "goals")
+
+    all_reports = {}
+    goal_sections = []
+
+    if os.path.isdir(goals_dir):
+        for goal_id in sorted(os.listdir(goals_dir)):
+            evidence_json_path = os.path.join(goals_dir, goal_id, "goal_evidence.json")
+            evidence_md_path = os.path.join(goals_dir, goal_id, "goal_evidence.md")
+            if os.path.isfile(evidence_json_path):
+                with open(evidence_json_path, "r", encoding="utf-8") as f:
+                    ej = json.load(f)
+                for rid, info in ej.get("reports", {}).items():
+                    if rid not in all_reports:
+                        all_reports[rid] = info
+            if os.path.isfile(evidence_md_path):
+                with open(evidence_md_path, "r", encoding="utf-8") as f:
+                    goal_sections.append(f.read())
+
+    prev_month_path = os.path.join(wd, "prev_month.json")
+    rp_lines = []
+    if os.path.isfile(prev_month_path):
+        with open(prev_month_path, "r", encoding="utf-8") as f:
+            prev_data = json.load(f)
+        for i, item in enumerate(prev_data.get("reports", []), 1):
+            rp_code = f"RP{i:02d}"
+            rid = item.get("reportRecordId", "")
+            title = item.get("title", "")
+            type_desc = item.get("reportTypeDesc", "")
+            rp_lines.append(
+                f"| {rp_code} | {type_desc} | 《{title}》 | [查看汇报](huibao://view?id={rid}) |"
+            )
+
+    primary_count = sum(1 for v in all_reports.values() if v.get("level") == "主证据")
+    secondary_count = sum(1 for v in all_reports.values() if v.get("level") == "辅证")
+
+    lines = [
+        "### 附录：证据索引\n",
+        "#### A.1 统计摘要\n",
+        f"- 原始工作汇报：{len(all_reports)} 份",
+        f"- 经批量通知归并后最终采纳：{len(all_reports)} 份",
+        f"- 其中本人主证据：{primary_count} 份、他人关联辅证：{secondary_count} 份\n",
+        "#### A.2 证据索引表\n",
+        "| R 编号 | 汇报标题 | 证据级别 | 汇报链接 | 关联节点 |",
+        "|--------|---------|---------|---------|---------|",
+    ]
+    for rid in sorted(all_reports.keys()):
+        info = all_reports[rid]
+        nodes_str = " / ".join(
+            f"{n['nodeNumber']} {_strip_html(n['nodeName'])}" for n in info.get("nodes", [])
+        )
+        lines.append(
+            f"| {info.get('rCode', '')} | 《{_strip_html(info.get('title', ''))}》 | {info.get('level', '')} "
+            f"| [查看汇报](huibao://view?id={rid}) | {nodes_str} |"
+        )
+
+    lines.append("")
+    lines.append("#### A.3 上月参考索引\n")
+    if rp_lines:
+        lines.append("**上月汇报：**\n")
+        lines.append("| RP 编号 | 类型 | 标题 | 链接 |")
+        lines.append("|---------|------|------|------|")
+        lines.extend(rp_lines)
+
+        eval_lines = []
+        if os.path.isfile(prev_month_path):
+            with open(prev_month_path, "r", encoding="utf-8") as f:
+                prev_data_for_eval = json.load(f)
+            for ev in prev_data_for_eval.get("evaluations", []):
+                eval_md = ev.get("evaluationMarkdown", "")
+                if eval_md:
+                    eval_lines.append(eval_md)
+        if eval_lines:
+            lines.append("")
+            lines.append("**上月评价摘要：**\n")
+            lines.extend(eval_lines)
+        else:
+            lines.append("")
+            lines.append("**上月评价摘要：**\n")
+            lines.append("上月无评价记录。")
+    else:
+        lines.append("首月汇报，无上月参考基线。")
+
+    md_content = "\n".join(lines)
+    output_path = os.path.join(wd, "evidence_ledger.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    _log(f"Done! Global evidence ledger written to {output_path} ({len(all_reports)} reports)")
+    return {"success": True, "outputFile": output_path, "totalReports": len(all_reports)}
+
+
+# ─── assemble_report (Phase 15) ──────────────────────────────────
+
+def assemble_report(args):
+    """[Phase 15] Splice final report from intermediate artifacts.
+
+    Reads and concatenates: report_header.md, conclusion.md, overview_table.md,
+    all goal_report.md files, excluded goals, chapter 3-4 links, evidence_ledger.md.
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for assemble_report"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for assemble_report"}
+
+    wd = _work_dir(args.group_id, args.month)
+
+    def _read_if_exists(path, fallback=""):
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        _log(f"Warning: file not found {path}, using fallback")
+        return fallback
+
+    parts = []
+
+    parts.append(_read_if_exists(os.path.join(wd, "report_header.md"), "# BP自查报告\n"))
+    parts.append("\n---\n")
+
+    parts.append("### 1. 总体自查结论\n\n")
+    conclusion = _read_if_exists(os.path.join(wd, "conclusion.md"), "")
+    if conclusion:
+        parts.append(conclusion)
+        parts.append("\n---\n")
+
+    parts.append("### 2. 目标级自查明细\n")
+
+    overview = _read_if_exists(os.path.join(wd, "overview_table.md"), "")
+    if overview:
+        parts.append("#### 2.1 目标清单总览\n")
+        parts.append(overview)
+        parts.append("\n")
+
+    parts.append("#### 2.2 目标明细\n")
+
+    goals_dir = os.path.join(wd, "goals")
+    goal_count = 0
+    if os.path.isdir(goals_dir):
+        for goal_id in sorted(os.listdir(goals_dir)):
+            report_path = os.path.join(goals_dir, goal_id, "goal_report.md")
+            if os.path.isfile(report_path):
+                with open(report_path, "r", encoding="utf-8") as f:
+                    parts.append(f.read())
+                parts.append("\n")
+                goal_count += 1
+
+    excluded_path = os.path.join(wd, "excluded_goals.md")
+    if os.path.isfile(excluded_path):
+        with open(excluded_path, "r", encoding="utf-8") as f:
+            parts.append(f.read())
+        parts.append("\n")
+
+    parts.append("\n---\n")
+
+    ch3 = _read_if_exists(os.path.join(wd, "chapter3.md"), "")
+    if ch3:
+        parts.append(ch3)
+        parts.append("\n---\n")
+
+    ch4 = _read_if_exists(os.path.join(wd, "chapter4.md"), "")
+    if ch4:
+        parts.append(ch4)
+        parts.append("\n---\n")
+
+    ledger = _read_if_exists(os.path.join(wd, "evidence_ledger.md"), "")
+    if ledger:
+        parts.append(ledger)
+
+    final_report = "\n".join(parts)
+    output_path = args.output or os.path.join(wd, "report_selfcheck.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(final_report)
+
+    _log(f"Done! Final report assembled: {output_path} ({goal_count} goals, {len(final_report)} chars)")
+    return {"success": True, "outputFile": output_path, "goalCount": goal_count, "charCount": len(final_report)}
+
+
+# ─── save_openclaw_report (Phase 16) ─────────────────────────────
+
+def save_openclaw_report(args):
+    """[Phase 16] Save report to BP via saveOpenClawReport (2.33).
+
+    Does NOT send as draft — directly saves to BP system. No reportRecordId needed.
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for save_openclaw_report"}
+    if not args.month:
+        return {"error": "month is required for save_openclaw_report"}
+    if not args.content_file:
+        return {"error": "content_file is required for save_openclaw_report"}
+    if not APP_KEY:
+        return {"error": "BP_OPEN_API_APP_KEY is not configured."}
+
+    content_path = args.content_file
+    if not os.path.isfile(content_path):
+        return {"error": f"Content file not found: {content_path}"}
+
+    with open(content_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if not content.strip():
+        return {"error": "Content file is empty"}
+
+    body = {
+        "groupId": args.group_id,
+        "reportContent": content,
+        "reportMonth": args.month,
+    }
+
+    _log(f"Saving openclaw report: groupId={args.group_id}, month={args.month}")
+    result = _request("POST", "/bp/monthly/report/saveOpenClawReport", json_body=body)
+
+    if result.get("success"):
+        _log(f"OpenClaw report saved. groupId={args.group_id}, month={args.month}, data={result.get('data')}")
+
+    return result
+
+
+# ─── collect_goal_data [Legacy] ──────────────────────────────────
 
 def collect_goal_data(args):
     """Collect BP detail + reports for a single goal (per-goal granularity).
@@ -1123,10 +1942,12 @@ def collect_previous_month_data(args):
     if errors:
         output["errors"] = errors
 
-    output_path = args.output
-    if not output_path:
-        output_path = f"/tmp/prev_month_data_{args.group_id}.json"
+    report_month = getattr(args, "report_month", None) or getattr(args, "month", "") or ""
+    wd = _work_dir(args.group_id, report_month) if report_month else f"/tmp/bp_report_{args.group_id}_prev"
+    os.makedirs(wd, exist_ok=True)
+    default_path = os.path.join(wd, "prev_month.json")
 
+    output_path = args.output or default_path
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
@@ -1135,15 +1956,25 @@ def collect_previous_month_data(args):
 
 
 ACTION_MAP = {
+    # New flow (Phase 1-16)
+    "init_work_dir": init_work_dir,
     "collect_monthly_overview": collect_monthly_overview,
+    "collect_goal_progress": collect_goal_progress,
+    "collect_previous_month_data": collect_previous_month_data,
+    "build_goal_evidence": build_goal_evidence,
+    "build_judgment_input": build_judgment_input,
+    "aggregate_lamp_colors": aggregate_lamp_colors,
+    "build_evidence_ledger": build_evidence_ledger,
+    "assemble_report": assemble_report,
+    "save_openclaw_report": save_openclaw_report,
+    "update_report_status": update_report_status,
+    # Legacy (backward compat)
     "collect_goal_data": collect_goal_data,
     "collect_monthly_data": collect_monthly_data,
-    "collect_previous_month_data": collect_previous_month_data,
     "get_report_content": get_report_content,
     "get_report_text": get_report_text,
     "save_draft": save_draft,
     "save_monthly_report": save_monthly_report,
-    "update_report_status": update_report_status,
 }
 
 
@@ -1157,13 +1988,17 @@ def main():
         help="The action to perform",
     )
     parser.add_argument("--group_id", help="Personal group ID")
-    parser.add_argument("--goal_id", help="Goal ID (for collect_goal_data)")
+    parser.add_argument("--goal_id", help="Goal ID (for collect_goal_progress / build_goal_evidence)")
     parser.add_argument("--month", help="Target month YYYY-MM")
-    parser.add_argument("--output", help="Output JSON file path")
+    parser.add_argument("--output", help="Output file path")
+    parser.add_argument("--employee_id", help="Employee ID (for evidence level: primary vs secondary)")
+    parser.add_argument("--r_start_index", help="R-code start index (for build_goal_evidence, default=1)")
+    parser.add_argument("--report_month", help="The actual report month (for collect_previous_month_data to locate work dir)")
+    # Legacy / shared
     parser.add_argument("--report_id", help="Report ID (for get_report_content)")
     parser.add_argument("--receiver_emp_id", help="Receiver employee ID (for save_draft)")
     parser.add_argument("--title", help="Report title (for save_draft)")
-    parser.add_argument("--content_file", help="Path to markdown content file (for save_draft)")
+    parser.add_argument("--content_file", help="Path to markdown/html content file")
     parser.add_argument("--sender_id", help=f"Sender system user ID (default: {DEFAULT_SENDER_ID})")
     parser.add_argument("--report_record_id", help="Report record ID from save_draft (for save_monthly_report)")
     parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for save_draft)")

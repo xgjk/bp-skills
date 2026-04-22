@@ -8,7 +8,7 @@ description: >-
 
 # BP 个人月度汇报
 
-为 BP 系统中的个人节点生成月度汇报。核心逻辑是**先拆证据、再做判断、最后组装报告**。
+为 BP 系统中的个人节点生成月度汇报。核心逻辑是**脚本预处理 → AI 逐目标分析 → 脚本拼接报告**。
 
 > **渐进式加载**：启动时只需阅读本文件。各步骤的详细操作说明按需加载对应文件。
 > **所有 references/ 下的文件均为强制约束**，读取后必须逐条遵守。
@@ -19,9 +19,9 @@ description: >-
 references/
   workflow/                        -- 分步操作手册（执行对应步骤时加载）
     step1-identify.md              -- Step 1 & 1.5 详细操作
-    step2-collect.md               -- Step 2 详细操作
-    step3-generate.md              -- Step 3 详细操作
-    step4-send.md                  -- Step 4 详细操作 + 工具速查表
+    step2-collect.md               -- Step 2 详细操作（阶段 1-4: 数据采集+证据台账+判灯材料）
+    step3-generate.md              -- Step 3 详细操作（阶段 5-14: AI 判灯+分析+报告生成）
+    step4-send.md                  -- Step 4 详细操作（阶段 15-16: 拼接+保存）
   rules/                           -- 判断规则与校验约束
     general-rules.md               -- 通用约束（流程启动时加载）
     traffic-light-rules.md         -- 灯色判断规则与排除规则
@@ -30,7 +30,6 @@ references/
   templates/                       -- 报告模板（Step 3 加载）
     report-template-bp-self-check.md -- 报告模板与输出格式定义
   api-reference.md                 -- 工具脚本速查表与环境配置
-  workflow-details.md              -- 流程索引页（指向 workflow/ 下各文件）
   changelog.md                     -- 变更记录（仅维护参考，无需加载）
 scripts/
   monthly_report_api.py            -- API 工具脚本
@@ -39,20 +38,51 @@ scripts/
 ## 核心概念
 
 - **报告定位**：以"每个 BP 目标"为主线底座的自查报告，串起承诺对照→结果→举措→偏差
-- **判断主轴**：先以目标维度判断是否参与自查（计划时间范围与汇报月份有无交集），目标不在范围内直接标★未启动；参与自查的目标再对其下关键举措逐个判灯，KR 只做差距分析不判灯
+- **层次化分析**：举措级判灯 → KR 级差距分析 → 目标级总结报告 → 全目标拉通总结 → 拼接月报
+- **脚本 vs AI 分工**：排除判断、黑灯判断、R 编号分配、灯色聚合、报告拼接由**脚本**完成；红/黄/绿灯判断、KR 差距分析、目标总结、总体结论由**AI**完成
 - **灯色层级**：目标级排除判断（★未启动 / 参与）→ 举措级独立判灯 → 目标级从举措聚合（红→黄→黑→绿）→ KR 级不判灯
 - **证据编号**：当月 `R{MM}{序号}`（如 `R0301`），上月 `RP{序号}`（如 `RP01`），严禁混用
+- **报告是拼接的**：最终月报由脚本按固定模板从各中间产物文件拼接而成，不是一次性 AI 生成
+
+## 工作目录
+
+每次运行的中间产物统一保存在 `/tmp/bp_report_{groupId}_{month}/` 目录下，按 groupId + month 隔离。初始化时清理同一维度的历史残留，不影响其他分组或月份。
+
+```
+/tmp/bp_report_{groupId}_{month}/
+  overview.json                          # 阶段1: 目标列表
+  prev_month.json                        # 上月数据
+  excluded_goals.md                      # 排除结果
+  goals/
+    {goalId}/
+      progress.json                      # 阶段2-3: 排除+举证Markdown+黑灯+reportIds
+      goal_evidence.md                   # 阶段3.5: 目标级证据台账
+      goal_evidence.json                 # 阶段3.5: 证据台账结构化数据
+      judgment_input_{actionId}.md       # 阶段4: 判灯材料包
+      action_judgments.json              # 阶段5: 举措判灯结果(结构化)
+      action_judgments.md                # 阶段5: 举措判灯结果(Markdown)
+      kr_analysis.md                     # 阶段6: KR差距分析
+      goal_lamp.json                     # 阶段7: 目标级灯色
+      goal_report.md                     # 阶段10: 目标总结报告
+  evidence_ledger.md                     # 阶段8: 全局证据台账
+  report_header.md                       # 阶段9: 报告头部
+  overview_table.md                      # 阶段12: 目标总览表
+  conclusion.md                          # 阶段13: 总体结论
+  chapter3.md                            # 阶段14: 第3章链接
+  chapter4.md                            # 阶段14: 第4章链接
+  report_selfcheck.md                    # 阶段15: 最终拼接报告
+```
 
 ## 禁止事项
 
 1. 禁止一步生成整篇报告，必须走 Step 1 → 1.5 → 2 → 3 → 4 的分步流程
 2. 禁止对任何 ID 参数做数值转换（parseInt/Number），保持字符串原样
-3. 禁止在校验通过前调用 `save_draft`
+3. 禁止在校验通过前调用保存接口
 4. 禁止伪造 R 编号、RP 编号、汇报链接或任何数据
 5. 禁止跳过参考文档加载直接执行 Step 3
 6. 禁止在最终报告中输出内部流程步骤编号（Step 3a/3b 等）或模板括号注释
 7. 禁止混用 R 编号和 RP 编号
-8. 禁止读取其他目标的 goal_section 或 goal_cards 文件（上下文隔离）
+8. 禁止读取其他目标的 goal_report 或中间文件（上下文隔离）
 
 ## 输出风格
 
@@ -60,11 +90,11 @@ scripts/
 - 禁止空值直出（如"无数据"），必须转为有引导意义的自然语句
 - 禁止技术字段泄漏（reportId、taskId 等 API 字段名不得出现在报告正文）
 - 所有灯色使用 HTML span 标签渲染（详见 templates/report-template-bp-self-check.md）
-- 正文证据引用只带编号：`[R编号](huibao://view?id={reportId})`，不附带书名号标题。汇报标题仅在附录 A.2 证据清单中展示
+- 正文证据引用只带编号：`[R编号](huibao://view?id={reportId})`，不附带书名号标题
 
 ## 全局容错规则
 
-- **数据采集失败**（Step 2）：检查脚本输出的 `errors` 数组。若核心数据（`goalDetail`、`reportIndex`）已获取 → 记录警告，继续。若核心数据缺失 → 重试一次该步骤。仍失败则调用 `update_report_status --status 2`
+- **数据采集失败**（Step 2）：检查脚本输出的 `errors` 数组。若核心数据已获取 → 记录警告，继续。若核心数据缺失 → 重试一次。仍失败则调用 `update_report_status --status 2`
 - **文件不存在**：执行每个步骤前，先确认上一步的产出文件存在且非空。若不存在，回退重新执行上一步
 - **校验失败回退**：以目标为粒度定位失败项，仅回退修正该目标对应章节。同一目标最多重试 2 次
 - **最大重试**：任何单步最多重试 2 次，超过则标记失败并终止
@@ -76,7 +106,7 @@ scripts/
 | 某目标无任何汇报 | 正常进入判灯流程，所有举措判黑灯 |
 | 所有目标均被排除（★ 未启动） | 报告保留 2.1 总览表（所有目标均以 ★ 未启动列入），2.2 明细为空不展开，其余章节正常输出 |
 | 目标有 KR 但无举措 | 目标灯色标黑灯，理由注明"无关键举措" |
-| 上月数据采集为空（首月） | Step 2b 跳过，基线行写"首月，无基线"，RP 不分配 |
+| 上月数据采集为空（首月） | Step 2e 跳过，基线行写"首月，无基线"，RP 不分配 |
 | goalDetail 中 KR 列表为空 | 该目标下无成果可分析，目标灯色判黑灯 |
 | 内容聚合无法判断是否同一事项 | 默认不合并（宁可多不可少） |
 
@@ -92,45 +122,56 @@ scripts/
 
 获取 `groupId`、`employeeId`、`report_month`。若用户只给姓名，通过 `bp-data-viewer` 定位。
 
-**完成后输出**：`✅ Step 1 完成 — groupId={值}, employeeId={值}, month={值}`
+**完成后输出**：`Step 1 完成 — groupId={值}, employeeId={值}, month={值}`
 
 ### Step 1.5: 标记生成开始
 
 调用 `update_report_status --status 0` 标记"生成中"。
 
-**完成后输出**：`✅ Step 1.5 完成 — 状态已标记为"生成中"`
+**完成后输出**：`Step 1.5 完成 — 状态已标记为"生成中"`
 
-### Step 2: 采集 BP 数据
+### Step 2: 采集 BP 数据 + 构建证据台账 + 组装判灯材料
 
 **前置加载**：读取 [references/workflow/step2-collect.md](references/workflow/step2-collect.md)
 
-1. **2a-i**: 执行 `collect_monthly_overview` → 产出 `/tmp/monthly_overview_{groupId}.json`，读取该文件获取目标列表
-2. **2a-ii**: 对 goals 列表中的每个目标，执行 `collect_goal_data` → 产出 `/tmp/goal_data_{groupId}_{goalId}.json`（轻量索引）+ `/tmp/reports_{groupId}/` 目录（汇报全文池）
-3. **2b**: 执行 `collect_previous_month_data`（**`--month` 传上月**，如当月 2026-03 则传 2026-02） → 产出 `/tmp/prev_month_data_{groupId}.json`（上月汇报预览+评价），全文也写入 `/tmp/reports_{groupId}/`。首月可跳过
+执行顺序：
+1. **2-0**: `init_work_dir` 初始化工作目录
+2. **2a**: `collect_monthly_overview` → 获取目标列表
+3. **2b**: 对每个目标 `collect_goal_progress` → 排除判断 + 证据 Markdown + 黑灯标记
+4. **2c**: 对每个参与自查的目标 `build_goal_evidence` → 证据台账 + R 编号分配
+5. **2d**: 对每个参与自查的目标 `build_judgment_input` → 判灯材料包
+6. **2e**: `collect_previous_month_data` → 上月参考数据
 
-**完成后输出**：`✅ Step 2 完成 — {N} 个目标数据已采集，上月数据已采集（或首月跳过）`
+**完成后输出**：`Step 2 完成 — {N} 个目标数据已采集，{M} 个参与自查，{K} 份证据已编号`
 
 ### Step 3: 生成月报内容
 
-**Step 3-预备（必须在 3a 之前完成）**：读取以下四个文件：
+**前置加载**：读取以下文件：
 - [references/workflow/step3-generate.md](references/workflow/step3-generate.md)
 - [references/rules/traffic-light-rules.md](references/rules/traffic-light-rules.md)
 - [references/rules/evidence-rules.md](references/rules/evidence-rules.md)
 - [references/templates/report-template-bp-self-check.md](references/templates/report-template-bp-self-check.md)
 
-**确认已读取后**，按 3a → 3b → 3c → 3d 顺序执行，不可跳步：
+执行顺序（对每个目标循环 3a-3d，然后 3e-3i 全局）：
+1. **3a**: 举措级判灯（AI 判红/黄/绿，脚本已标黑灯）→ `action_judgments.json/md`
+2. **3b**: KR 级差距分析（AI）→ `kr_analysis.md`
+3. **3c**: 目标级灯色聚合（`aggregate_lamp_colors` 脚本）→ `goal_lamp.json`
+4. **3d**: 生成目标总结报告（AI）→ `goal_report.md`
+5. **3e**: 生成未参与目标说明 → `excluded_goals.md`
+6. **3f**: 生成总览表 → `overview_table.md`
+7. **3g**: 生成总体结论 → `conclusion.md`
+8. **3h**: 生成报告头部 + 链接章节 → `report_header.md` + `chapter3.md` + `chapter4.md`
+9. **3i**: 全局证据台账合并（`build_evidence_ledger` 脚本）→ `evidence_ledger.md`
 
-1. **3a**: 构建 BP 锚点图 → 产出 `/tmp/bp_anchor_{groupId}.md`
-2. **3b**: 构建证据台账 + R/RP 编号分配（严格按 evidence-rules.md） → 产出 `/tmp/evidence_ledger_{groupId}.md`
-3. **3c**: 目标级排除判断 + 逐目标循环（按需精读→判灯→组装）。精读汇报时通过 `get_report_text` 从汇报池按需加载单条全文 → 产出 `/tmp/excluded_goals_{groupId}.md` + `/tmp/goal_cards_{groupId}_{goalIndex}.md` + `/tmp/goal_section_{groupId}_{goalIndex}.md`
-4. **3d**: 读取 [references/rules/validation-rules.md](references/rules/validation-rules.md)，拼接全局报告（含第 1–4 章 + 附录） + 语言清洗 + 16 项合规校验（含第 4 章校验） → 产出 `/tmp/report_selfcheck_{groupId}.md`
+**完成后输出**：`Step 3 完成 — 报告各章节已生成，待拼接`
 
-**完成后输出**：`✅ Step 3 完成 — 报告已生成并通过合规校验`
+### Step 4: 拼接报告 → 校验 → 保存
 
-### Step 4: 发送 → 保存
+**前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md) + [references/rules/validation-rules.md](references/rules/validation-rules.md)
 
-**前置加载**：读取 [references/workflow/step4-send.md](references/workflow/step4-send.md)
+执行顺序：
+1. **4a**: `assemble_report` 脚本拼接最终报告 → `report_selfcheck.md`
+2. **4b**: 16 项合规性校验
+3. **4c**: `save_openclaw_report` 保存到 BP 系统
 
-校验通过后先调用 `save_draft`，**立即从其返回的 `report_record_id` 字段记录 ID**（这是工作汇报草稿 ID），再调用 `save_monthly_report` 保存到 BP 系统。**注意：`save_monthly_report` 返回的 `data` 是 BP 月报 ID，与 `report_record_id` 是不同的 ID，严禁混淆。** `save_monthly_report` 保存成功后自动将 `generateStatus` 置为 `1=成功`，无需再单独调用 `update_report_status`。失败时调用 `update_report_status --status 2`。
-
-**完成后输出**：`✅ Step 4 完成 — 报告已发送并保存，report_record_id={save_draft返回的ID}`
+**完成后输出**：`Step 4 完成 — 报告已保存到 BP 系统`

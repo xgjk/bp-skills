@@ -12,19 +12,67 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 
 ---
 
-## Action 速查表
+## 新流程 Action 速查表
 
-| action | 说明 | 必填参数 | 可选参数 |
-|--------|------|----------|----------|
-| `collect_monthly_overview` | 采集全局概览（Step 2a-i） | `--group_id`、`--month` | `--output` |
-| `collect_goal_data` | 按目标采集精简结构+汇报索引（Step 2a-ii）。输出轻量 JSON（含 `goalDetail`、`reportIndex`、`reports` 引用），汇报全文写入 `/tmp/reports_{groupId}/` | `--group_id`、`--goal_id`、`--month` | `--output` |
-| `collect_monthly_data` | [旧版] 一次性采集全量数据到单个 JSON。**仅作历史兼容保留，新流程禁止调用** | `--group_id`、`--month` | `--output` |
-| `collect_previous_month_data` | 采集上月汇报+评价作为参考基线。汇报内容只保留前 500 字预览，全文写入 `/tmp/reports_{groupId}/prev_{id}.json` | `--group_id`、`--month`（上月YYYY-MM） | `--output` |
-| `get_report_content` | 获取单条汇报原始内容（直接调 API） | `--report_id` | 无 |
-| `get_report_text` | 从本地汇报池读取单条汇报纯文本全文（Step 3c 按需精读时使用）。优先读本地缓存，未命中则回退调 API | `--group_id`、`--report_id` | 无 |
-| `save_draft` | 保存汇报草稿（工作协同） | `--receiver_emp_id`、`--title`、`--content_file` | `--sender_id`（一般无需指定，脚本自动通过接收人 empId 匹配对应企业的 AI 助理） |
-| `save_monthly_report` | 保存月报到 BP 系统 | `--group_id`、`--month`、`--content_file`、`--report_record_id` | 无 |
-| `update_report_status` | 更新月报生成状态（0=生成中, 1=成功, 2=失败） | `--group_id`、`--month`、`--status` | `--fail_reason`（status=2 时必填） |
+| action | 阶段 | 说明 | 必填参数 | 可选参数 |
+|--------|------|------|----------|----------|
+| `init_work_dir` | 前置 | 初始化工作目录（清理同一 groupId+month 的历史残留） | `--group_id`、`--month` | — |
+| `collect_monthly_overview` | 1 | 采集全局概览（任务树+目标列表） | `--group_id`、`--month` | `--output` |
+| `collect_goal_progress` | 2-3 | 单目标：排除判断 + 证据 Markdown + 黑灯 + reportId 提取 | `--group_id`、`--goal_id`、`--month` | `--output` |
+| `build_goal_evidence` | 3.5 | 构建目标级证据台账 + R 编号分配 | `--group_id`、`--goal_id`、`--month` | `--employee_id`、`--r_start_index`（默认 1） |
+| `build_judgment_input` | 4 | 组装判灯材料包 Markdown | `--group_id`、`--goal_id`、`--month` | — |
+| `aggregate_lamp_colors` | 7 | 举措灯色 → 目标灯色聚合 | `--group_id`、`--goal_id`、`--month` | — |
+| `build_evidence_ledger` | 8 | 合并所有目标证据台账为全局台账 | `--group_id`、`--month` | — |
+| `assemble_report` | 15 | 拼接最终报告 | `--group_id`、`--month` | `--output` |
+| `save_openclaw_report` | 16 | 保存报告到 BP 系统（2.33 saveOpenClawReport） | `--group_id`、`--month`、`--content_file` | — |
+| `collect_previous_month_data` | 2e | 采集上月汇报+评价 | `--group_id`、`--month`（上月） | `--report_month`（当月，用于定位工作目录）、`--output` |
+| `update_report_status` | 通用 | 更新月报生成状态（0=生成中, 1=成功, 2=失败） | `--group_id`、`--month`、`--status` | `--fail_reason`（status=2 时必填） |
+
+---
+
+## Legacy Action 速查表
+
+以下 action 保留向后兼容，**新流程不应使用**：
+
+| action | 说明 |
+|--------|------|
+| `collect_goal_data` | [旧版] 逐目标采集汇报索引+全文池。已被 `collect_goal_progress` 替代 |
+| `collect_monthly_data` | [旧版] 一次性全量采集。已废弃 |
+| `get_report_content` | 获取单条汇报原始内容（直接调 API） |
+| `get_report_text` | 从本地汇报池读取单条纯文本全文。新流程使用 progressMarkdown 替代 |
+| `save_draft` | 保存汇报草稿到工作协同。新流程使用 `save_openclaw_report` 替代 |
+| `save_monthly_report` | 保存月报到 BP 系统（需先 save_draft 获取 report_record_id）。新流程使用 `save_openclaw_report` 替代 |
+
+---
+
+## 工作目录结构
+
+新流程所有中间产物统一保存在 `/tmp/bp_report_{groupId}_{month}/` 下：
+
+```
+/tmp/bp_report_{groupId}_{month}/
+  overview.json                          # collect_monthly_overview
+  prev_month.json                        # collect_previous_month_data
+  excluded_goals.md                      # AI Phase 11
+  goals/
+    {goalId}/
+      progress.json                      # collect_goal_progress
+      goal_evidence.md                   # build_goal_evidence
+      goal_evidence.json                 # build_goal_evidence
+      judgment_input_{actionId}.md       # build_judgment_input
+      action_judgments.json              # AI Phase 5
+      action_judgments.md                # AI Phase 5
+      kr_analysis.md                     # AI Phase 6
+      goal_lamp.json                     # aggregate_lamp_colors
+      goal_report.md                     # AI Phase 10
+  evidence_ledger.md                     # build_evidence_ledger
+  report_header.md                       # AI Phase 9
+  overview_table.md                      # AI Phase 12
+  conclusion.md                          # AI Phase 13
+  chapter3.md                            # AI Phase 14
+  chapter4.md                            # AI Phase 14
+  report_selfcheck.md                    # assemble_report
+```
 
 ---
 
