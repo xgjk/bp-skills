@@ -108,6 +108,38 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 
 ---
 
+## 3d+: 保存目标月报阅读内容
+
+**在 3d 完成后立即执行。** 将该目标的月报阅读内容保存到系统（API 2.35 saveTaskMonthlyReading）。
+
+**保存失败不阻塞后续流程**，仅记录警告日志，继续执行 3e 及后续步骤。
+
+### 参与自查的目标
+
+3d 生成 `goal_report.md` 后，立即读取并保存：
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_task_monthly_reading \
+  --task_id "{goalId}" \
+  --month "{YYYY-MM}" \
+  --content_file "/tmp/bp_report_{groupId}_{month}/goals/{goalId}/goal_report.md"
+```
+
+### 未参与自查的目标
+
+在 **3e 完成后**，遍历所有被排除的目标（`progress.json` 中 `excluded: true` 的目标），为每个目标保存一行说明：
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_task_monthly_reading \
+  --task_id "{goalId}" \
+  --month "{YYYY-MM}" \
+  --content "本月该目标不参与自查（原因：{excludeReason}），未生成目标明细。"
+```
+
+其中 `{excludeReason}` 从该目标 `progress.json` 的 `excludeReason` 字段读取。
+
+---
+
 ## 3e: 生成未参与目标说明（阶段 11）
 
 读取所有目标的 `progress.json`，汇总被排除的目标，生成 `excluded_goals.md`。
@@ -222,7 +254,9 @@ goals/{goalId}/
   kr_analysis.md          ← 3b
   goal_lamp.json          ← 3c
   goal_report.md          ← 3d
+  (→ 远端已保存月报阅读)  ← 3d+ save_task_monthly_reading
 excluded_goals.md         ← 3e
+(→ 排除目标远端已保存说明) ← 3d+ save_task_monthly_reading（3e 后执行）
 overview_table.md         ← 3f
 conclusion.md             ← 3g
 report_header.md          ← 3h

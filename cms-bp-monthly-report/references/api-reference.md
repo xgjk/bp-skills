@@ -25,6 +25,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 | `build_evidence_ledger` | 8 | 合并所有目标证据台账为全局台账 | `--group_id`、`--month` | — |
 | `assemble_report` | 15 | 拼接最终报告 | `--group_id`、`--month` | `--output` |
 | `save_openclaw_report` | 16 | 保存报告内容到 `bp_openclaw_task` 并自动标记成功（调用后无需再调 `update_report_status --status 1`） | `--group_id`、`--month`、`--content_file` | — |
+| `save_task_monthly_reading` | 3d+ | 保存目标月报阅读内容到系统（API 2.35 saveTaskMonthlyReading）。参与自查目标传 `--content_file`，排除目标传 `--content`。**失败不阻塞流程** | `--task_id`、`--month` | `--content_file`（二选一）、`--content`（二选一） |
 | `collect_previous_month_data` | 2e | 采集上月汇报+评价 | `--group_id`、`--month`（上月） | `--report_month`（当月，用于定位工作目录）、`--output` |
 | `update_report_status` | 通用 | 更新 `bp_openclaw_task` 任务状态（0=RUNNING, 1=SUCCESS, 2=FAILED）。保存成功后**无需调用**，仅用于标记开始（status=0）和失败（status=2） | `--group_id`、`--month`、`--status` | `--fail_reason`（status=2 时必填） |
 

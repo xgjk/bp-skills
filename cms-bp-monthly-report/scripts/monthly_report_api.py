@@ -15,6 +15,7 @@ Actions:
     build_evidence_ledger        [Phase 8] Merge all goal evidence ledgers into global ledger
     assemble_report              [Phase 15] Splice final report from intermediate artifacts
     save_openclaw_report         [Phase 16] Save report to BP via saveOpenClawReport (2.33)
+    save_task_monthly_reading    [Step 3d+] Save goal monthly reading content via saveTaskMonthlyReading (2.35)
     update_report_status         Update monthly report generation status (0=generating, 1=success, 2=failed)
 
     # Legacy (kept for backward compat, new flow should not use):
@@ -1390,6 +1391,55 @@ def save_openclaw_report(args):
     return result
 
 
+# ─── save_task_monthly_reading (Step 3d+) ─────────────────────────
+
+def save_task_monthly_reading(args):
+    """Save goal monthly reading content via /bp/task/monthlyReading/save (API 2.35).
+
+    Supports two content sources (priority: content_file > content):
+    - --content_file: read from file (for participating goals with goal_report.md)
+    - --content: inline string (for excluded goals with a short note)
+    """
+    task_id = getattr(args, "task_id", None)
+    if not task_id:
+        return {"error": "task_id is required for save_task_monthly_reading"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for save_task_monthly_reading"}
+    if not APP_KEY:
+        return {"error": "BP_OPEN_API_APP_KEY is not configured."}
+
+    content = None
+    content_file = getattr(args, "content_file", None)
+    content_inline = getattr(args, "content", None)
+
+    if content_file:
+        if not os.path.isfile(content_file):
+            return {"error": f"Content file not found: {content_file}"}
+        with open(content_file, "r", encoding="utf-8") as f:
+            content = f.read()
+    elif content_inline:
+        content = content_inline
+    else:
+        return {"error": "Either --content_file or --content is required for save_task_monthly_reading"}
+
+    if not content.strip():
+        return {"error": "Content is empty"}
+
+    body = {
+        "taskId": task_id,
+        "month": args.month,
+        "content": content,
+    }
+
+    _log(f"Saving task monthly reading: taskId={task_id}, month={args.month}, chars={len(content)}")
+    result = _request("POST", "/bp/task/monthlyReading/save", json_body=body)
+
+    if result.get("success"):
+        _log(f"Task monthly reading saved. taskId={task_id}, month={args.month}")
+
+    return result
+
+
 # ─── collect_goal_data [Legacy] ──────────────────────────────────
 
 def collect_goal_data(args):
@@ -2117,6 +2167,7 @@ ACTION_MAP = {
     "build_evidence_ledger": build_evidence_ledger,
     "assemble_report": assemble_report,
     "save_openclaw_report": save_openclaw_report,
+    "save_task_monthly_reading": save_task_monthly_reading,
     "update_report_status": update_report_status,
     # Legacy (backward compat)
     "collect_goal_data": collect_goal_data,
@@ -2148,7 +2199,9 @@ def main():
     parser.add_argument("--report_id", help="Report ID (for get_report_content)")
     parser.add_argument("--receiver_emp_id", help="Receiver employee ID (for save_draft)")
     parser.add_argument("--title", help="Report title (for save_draft)")
+    parser.add_argument("--task_id", help="Task ID (for save_task_monthly_reading)")
     parser.add_argument("--content_file", help="Path to markdown/html content file")
+    parser.add_argument("--content", help="Inline content string (for save_task_monthly_reading, alternative to --content_file)")
     parser.add_argument("--sender_id", help=f"Sender system user ID (default: {DEFAULT_SENDER_ID})")
     parser.add_argument("--report_record_id", help="Report record ID from save_draft (for save_monthly_report)")
     parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for save_draft)")

@@ -134,11 +134,12 @@ scripts/
 2. **3b**: KR 级差距分析（AI）→ `kr_analysis.md`
 3. **3c**: 目标级灯色聚合（`aggregate_lamp_colors` 脚本）→ `goal_lamp.json`
 4. **3d**: 生成目标总结报告（AI）→ `goal_report.md`
-5. **3e**: 生成未参与目标说明 → `excluded_goals.md`
-6. **3f**: 生成总览表 → `overview_table.md`
-7. **3g**: 生成总体结论 → `conclusion.md`
-8. **3h**: 生成报告头部 + 链接章节 → `report_header.md` + `chapter3.md` + `chapter4.md`
-9. **3i**: 全局证据台账合并（`build_evidence_ledger` 脚本）→ `evidence_ledger.md`
+5. **3d+**: 保存目标月报阅读内容（`save_task_monthly_reading` 脚本）→ 参与自查目标保存 `goal_report.md` 内容，未参与目标在 3e 后保存说明（失败不阻塞）
+6. **3e**: 生成未参与目标说明 → `excluded_goals.md`
+7. **3f**: 生成总览表 → `overview_table.md`
+8. **3g**: 生成总体结论 → `conclusion.md`
+9. **3h**: 生成报告头部 + 链接章节 → `report_header.md` + `chapter3.md` + `chapter4.md`
+10. **3i**: 全局证据台账合并（`build_evidence_ledger` 脚本）→ `evidence_ledger.md`
 
 **完成后输出**：`Step 3 完成 — 报告各章节已生成，待拼接`
 
