@@ -112,6 +112,8 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 
 读取所有目标的 `progress.json`，汇总被排除的目标，生成 `excluded_goals.md`。
 
+**注意：`excluded_goals.md` 不包含任何 `#` / `##` / `###` 级别标题**（它被拼接在 `#### 2.2 目标明细` 之后）。若需标题，使用 `# 未参与自查目标说明`（一级标题，渲染效果等同于普通加粗文本段），或直接以加粗段落开头。**目标编号必须使用系统 `fullLevelNumber`**（如 `P1001-7`），从 `progress.json` 的 `goalDetail.fullLevelNumber` 字段读取，**严禁使用自编流水号**。
+
 这些目标在 2.1 总览表中以 ★ 标记，不展开明细。
 
 ---
@@ -123,6 +125,8 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 **注意：`overview_table.md` 不包含 `#### 2.1 目标清单总览` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），直接从表格开始输出。
 
 **必须 7 列**：目标编号 / BP目标 / 本月承诺口径 / 本月实际 / 证据引用 / 目标灯色 / 结论一句话。
+
+**目标编号必须使用系统 `fullLevelNumber`**（如 `P1001-7`），**严禁使用自编流水号**（如 001、002）。数据源优先级：先读 `overview.json` 的 `goals[].fullLevelNumber`（Step 2b 执行后已自动回填），若为空则从 `goals/{goalId}/progress.json` 的 `goalDetail.fullLevelNumber` 字段读取。
 
 所有目标均列入（含★未启动的目标）。
 
@@ -183,9 +187,9 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 > 解释口径：...
 ```
 
-**第 3 章** `chapter3.md`：仅链接，按模板输出。
+**第 3 章** `chapter3.md`：**不包含 `### 3. 年度结果预判评分` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），仅输出链接内容。
 
-**第 4 章** `chapter4.md`：仅链接，按模板输出。
+**第 4 章** `chapter4.md`：**不包含 `### 4. 月度汇报入口` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），仅输出链接内容。
 
 ---
 

@@ -231,7 +231,7 @@ def _collect_goal_summary(nodes):
         if "目标" in ntype:
             goals.append({
                 "goalId": str(node["id"]) if node.get("id") else None,
-                "name": node.get("name", ""),
+                "name": _strip_html(node.get("name", "")),
                 "fullLevelNumber": node.get("fullLevelNumber", ""),
                 "planDateRange": node.get("planDateRange", ""),
                 "statusDesc": node.get("statusDesc", ""),
@@ -330,7 +330,10 @@ def _slim_action(action):
     """Keep only fields needed for lamp judgment on an action node."""
     if not action:
         return action
-    return {k: action[k] for k in _ACTION_FIELDS if k in action}
+    slim = {k: action[k] for k in _ACTION_FIELDS if k in action}
+    if slim.get("name"):
+        slim["name"] = _strip_html(slim["name"])
+    return slim
 
 
 def _slim_kr(kr):
@@ -338,6 +341,8 @@ def _slim_kr(kr):
     if not kr:
         return kr
     slim = {k: kr[k] for k in _KR_FIELDS if k in kr}
+    if slim.get("name"):
+        slim["name"] = _strip_html(slim["name"])
     ms = slim.get("measureStandard", "")
     if ms:
         slim["measureStandard"] = _strip_html(ms)
@@ -347,10 +352,12 @@ def _slim_kr(kr):
 
 
 def _slim_goal_detail(detail):
-    """Keep only fields needed for lamp judgment, strip HTML from measureStandard."""
+    """Keep only fields needed for lamp judgment, strip HTML from measureStandard and name."""
     if not detail:
         return detail
     slim = {k: detail[k] for k in _GOAL_DETAIL_FIELDS if k in detail}
+    if slim.get("name"):
+        slim["name"] = _strip_html(slim["name"])
     ms = slim.get("measureStandard", "")
     if ms:
         slim["measureStandard"] = _strip_html(ms)
@@ -367,7 +374,7 @@ def _build_node_lookup(goal_detail):
     gid = str(goal_detail.get("id", ""))
     if gid:
         lookup[gid] = {
-            "name": goal_detail.get("name", ""),
+            "name": _strip_html(goal_detail.get("name", "")),
             "fullLevelNumber": goal_detail.get("fullLevelNumber", ""),
             "nodeType": "目标",
         }
@@ -375,7 +382,7 @@ def _build_node_lookup(goal_detail):
         kid = str(kr.get("id", ""))
         if kid:
             lookup[kid] = {
-                "name": kr.get("name", ""),
+                "name": _strip_html(kr.get("name", "")),
                 "fullLevelNumber": kr.get("fullLevelNumber", ""),
                 "nodeType": "关键成果",
             }
@@ -383,7 +390,7 @@ def _build_node_lookup(goal_detail):
             aid = str(action.get("id", ""))
             if aid:
                 lookup[aid] = {
-                    "name": action.get("name", ""),
+                    "name": _strip_html(action.get("name", "")),
                     "fullLevelNumber": action.get("fullLevelNumber", ""),
                     "nodeType": "举措",
                 }
@@ -538,6 +545,38 @@ def collect_monthly_overview(args):
     return {"success": True, "outputFile": output_path, "stats": output["stats"]}
 
 
+def _backfill_overview(group_id, month, goal_id, goal_detail):
+    """Backfill overview.json goals list with fields from getGoalAndKeyResult.
+
+    getSimpleTree does not return fullLevelNumber, planDateRange, or statusDesc
+    for goal nodes.  After collect_goal_progress fetches the full detail, this
+    function patches the corresponding entry in overview.json so that downstream
+    steps (3e, 3f) can read accurate data from a single source.
+    """
+    wd = _work_dir(group_id, month)
+    overview_path = os.path.join(wd, "overview.json")
+    if not os.path.isfile(overview_path):
+        return
+
+    with open(overview_path, "r", encoding="utf-8") as f:
+        overview = json.load(f)
+
+    updated = False
+    for g in overview.get("goals", []):
+        if str(g.get("goalId", "")) == str(goal_id):
+            for field in ("fullLevelNumber", "planDateRange", "statusDesc"):
+                new_val = goal_detail.get(field, "")
+                if new_val and not g.get(field):
+                    g[field] = new_val
+                    updated = True
+            break
+
+    if updated:
+        with open(overview_path, "w", encoding="utf-8") as f:
+            json.dump(overview, f, ensure_ascii=False, indent=2)
+        _log(f"Backfilled overview.json for goal {goal_id}")
+
+
 # ─── collect_goal_progress (Phase 2-3) ────────────────────────────
 
 def collect_goal_progress(args):
@@ -617,7 +656,7 @@ def collect_goal_progress(args):
 
             slim_kr = _slim_kr(kr)
             kr_data[kr_id] = {
-                "name": kr.get("name", ""),
+                "name": _strip_html(kr.get("name", "")),
                 "fullLevelNumber": kr.get("fullLevelNumber", ""),
                 "measureStandard": slim_kr.get("measureStandard", ""),
                 "planDateRange": kr.get("planDateRange", ""),
@@ -659,7 +698,7 @@ def collect_goal_progress(args):
                         is_black = True
 
                 action_data[action_id] = {
-                    "name": action.get("name", ""),
+                    "name": _strip_html(action.get("name", "")),
                     "fullLevelNumber": action.get("fullLevelNumber", ""),
                     "parentKrId": kr_id,
                     "planDateRange": action.get("planDateRange", ""),
@@ -700,6 +739,8 @@ def collect_goal_progress(args):
     output_path = args.output or os.path.join(gd, "progress.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+
+    _backfill_overview(args.group_id, args.month, args.goal_id, goal_detail)
 
     _log(f"Done! Goal progress written to {output_path}")
     return {"success": True, "outputFile": output_path, "excluded": output["excluded"],
@@ -744,18 +785,25 @@ def build_goal_evidence(args):
 
     node_report_map = {}
 
+    def _is_primary_evidence(author_id):
+        if not employee_id:
+            return True
+        author = str(author_id or "").strip()
+        if not author:
+            return True
+        return author == str(employee_id).strip()
+
     for kr_id, kr_info in progress.get("krData", {}).items():
         if kr_info.get("excluded"):
             continue
         for r in kr_info.get("reports", []):
             rid = r["reportId"]
             if rid not in seen_report_ids:
-                is_primary = (r.get("authorId", "") == employee_id) if employee_id else True
                 seen_report_ids[rid] = {
                     "reportId": rid,
                     "title": r.get("title", ""),
                     "authorId": r.get("authorId", ""),
-                    "level": "主证据" if is_primary else "辅证",
+                    "level": "主证据" if _is_primary_evidence(r.get("authorId")) else "辅证",
                     "rCode": None,
                     "nodes": [],
                 }
@@ -773,12 +821,11 @@ def build_goal_evidence(args):
         for r in action_info.get("reports", []):
             rid = r["reportId"]
             if rid not in seen_report_ids:
-                is_primary = (r.get("authorId", "") == employee_id) if employee_id else True
                 seen_report_ids[rid] = {
                     "reportId": rid,
                     "title": r.get("title", ""),
                     "authorId": r.get("authorId", ""),
-                    "level": "主证据" if is_primary else "辅证",
+                    "level": "主证据" if _is_primary_evidence(r.get("authorId")) else "辅证",
                     "rCode": None,
                     "nodes": [],
                 }
@@ -798,7 +845,7 @@ def build_goal_evidence(args):
         r_code_map[rid] = r_code
         r_index += 1
 
-    goal_name = progress["goalDetail"].get("name", "")
+    goal_name = _strip_html(progress["goalDetail"].get("name", ""))
     goal_number = progress["goalDetail"].get("fullLevelNumber", "")
     primary_count = sum(1 for v in seen_report_ids.values() if v["level"] == "主证据")
     secondary_count = sum(1 for v in seen_report_ids.values() if v["level"] == "辅证")
@@ -814,9 +861,11 @@ def build_goal_evidence(args):
     ]
     for rid in sorted(seen_report_ids.keys()):
         info = seen_report_ids[rid]
-        nodes_str = " / ".join(f"{n['nodeNumber']} {n['nodeName']}" for n in info["nodes"])
+        nodes_str = " / ".join(
+            f"{n['nodeNumber']} {_strip_html(n['nodeName'])}" for n in info["nodes"]
+        )
         lines.append(
-            f"| {info['rCode']} | 《{info['title']}》 | {info['level']} "
+            f"| {info['rCode']} | 《{_strip_html(info['title'])}》 | {info['level']} "
             f"| [查看汇报](huibao://view?id={rid}) | {nodes_str} |"
         )
 
@@ -826,11 +875,20 @@ def build_goal_evidence(args):
     for kr_id, kr_info in progress.get("krData", {}).items():
         if kr_info.get("excluded"):
             continue
-        rids = list(dict.fromkeys(node_report_map.get(kr_id, [])))
-        r_codes = [r_code_map[rid] for rid in rids if rid in r_code_map]
-        has_primary = any(seen_report_ids[rid]["level"] == "主证据" for rid in rids if rid in seen_report_ids)
+        kr_own_rids = list(dict.fromkeys(node_report_map.get(kr_id, [])))
+
+        child_rids = []
+        for action_id, action_info in progress.get("actionData", {}).items():
+            if action_info.get("excluded") or action_info.get("parentKrId") != kr_id:
+                continue
+            child_rids.extend(node_report_map.get(action_id, []))
+        all_kr_rids = list(dict.fromkeys(kr_own_rids + child_rids))
+
+        r_codes = [r_code_map[rid] for rid in all_kr_rids if rid in r_code_map]
+        has_primary = any(seen_report_ids[rid]["level"] == "主证据" for rid in all_kr_rids if rid in seen_report_ids)
         sufficiency = "充分" if has_primary else ("基本充分" if r_codes else "无")
-        lines.append(f"#### KR {kr_info.get('fullLevelNumber', '')}: {kr_info.get('name', '')}")
+        kr_name = _strip_html(kr_info.get('name', ''))
+        lines.append(f"#### KR {kr_info.get('fullLevelNumber', '')}: {kr_name}")
         lines.append(f"- 关联证据：{', '.join(r_codes) if r_codes else '无'}")
         lines.append(f"- 证据充分性：{sufficiency}")
 
@@ -842,7 +900,8 @@ def build_goal_evidence(args):
             a_has_primary = any(seen_report_ids[rid]["level"] == "主证据" for rid in a_rids if rid in seen_report_ids)
             a_sufficiency = "充分" if a_has_primary else ("基本充分" if a_r_codes else "无")
             is_black = action_info.get("isBlackLamp", False)
-            lines.append(f"#### 举措 {action_info.get('fullLevelNumber', '')}: {action_info.get('name', '')}")
+            action_name = _strip_html(action_info.get('name', ''))
+            lines.append(f"#### 举措 {action_info.get('fullLevelNumber', '')}: {action_name}")
             lines.append(f"- 关联证据：{', '.join(a_r_codes) if a_r_codes else '无'}")
             lines.append(f"- 证据充分性：{a_sufficiency}")
             if is_black:
@@ -920,15 +979,20 @@ def build_judgment_input(args):
         action_rids = list(dict.fromkeys(node_report_map.get(action_id, [])))
         action_r_codes = [f"{r_code_map[rid]}(huibao://view?id={rid})" for rid in action_rids if rid in r_code_map]
 
+        action_name = _strip_html(action_info.get('name', ''))
+        goal_name = _strip_html(goal_detail.get('name', ''))
+        kr_name = _strip_html(kr_info.get('name', ''))
+        kr_measure = _strip_html(kr_info.get('measureStandard', '未设置'))
+
         lines = [
-            f"# 判灯材料包：{action_info.get('fullLevelNumber', '')} {action_info.get('name', '')}",
+            f"# 判灯材料包：{action_info.get('fullLevelNumber', '')} {action_name}",
             "",
             "## BP 锚点",
-            f"- 目标：{goal_detail.get('fullLevelNumber', '')} {goal_detail.get('name', '')}",
-            f"- 所属 KR：{kr_info.get('fullLevelNumber', '')} {kr_info.get('name', '')}",
-            f"- KR 衡量标准：{kr_info.get('measureStandard', '未设置')}",
+            f"- 目标：{goal_detail.get('fullLevelNumber', '')} {goal_name}",
+            f"- 所属 KR：{kr_info.get('fullLevelNumber', '')} {kr_name}",
+            f"- KR 衡量标准：{kr_measure}",
             f"- 举措编号：{action_info.get('fullLevelNumber', '')}",
-            f"- 举措名称：{action_info.get('name', '')}",
+            f"- 举措名称：{action_name}",
             f"- 计划时间：{action_info.get('planDateRange', '未设置')}",
             f"- 当前状态：{action_info.get('statusDesc', '')}",
             "",
@@ -972,7 +1036,22 @@ def aggregate_lamp_colors(args):
         return {"error": f"action_judgments.json not found: {judgments_path}. AI must produce this file in Phase 5."}
 
     with open(judgments_path, "r", encoding="utf-8") as f:
-        judgments = json.load(f)
+        raw = json.load(f)
+
+    if isinstance(raw, dict) and "actionJudgments" in raw:
+        judgments = {}
+        for item in raw["actionJudgments"]:
+            aid = str(item.get("actionId", ""))
+            if aid:
+                judgments[aid] = item
+    elif isinstance(raw, list):
+        judgments = {}
+        for item in raw:
+            aid = str(item.get("actionId", ""))
+            if aid:
+                judgments[aid] = item
+    else:
+        judgments = raw
 
     lamp_priority = {"red": 4, "yellow": 3, "black": 2, "green": 1}
     lamp_names = {"red": "🔴", "yellow": "🟡", "black": "⚫", "green": "🟢"}
@@ -981,7 +1060,13 @@ def aggregate_lamp_colors(args):
     counts = {"green": 0, "yellow": 0, "red": 0, "black": 0}
 
     for action_id, info in judgments.items():
-        lamp = info.get("lamp", "green")
+        if not isinstance(info, dict):
+            continue
+        lamp = info.get("lamp") or info.get("color") or "green"
+        lamp = lamp.lower().strip()
+        if lamp not in lamp_priority:
+            _log(f"Unknown lamp value '{lamp}' for action {action_id}, defaulting to green")
+            lamp = "green"
         counts[lamp] = counts.get(lamp, 0) + 1
         if lamp_priority.get(lamp, 0) > lamp_priority.get(highest, 0):
             highest = lamp
@@ -1185,18 +1270,25 @@ def assemble_report(args):
     excluded_path = os.path.join(wd, "excluded_goals.md")
     if os.path.isfile(excluded_path):
         with open(excluded_path, "r", encoding="utf-8") as f:
-            parts.append(f.read())
+            excluded_content = f.read()
+        excluded_content = _strip_leading_heading(excluded_content, "未参与自查目标说明")
+        excluded_content = _strip_leading_heading(excluded_content, "未参与自查目标")
+        parts.append(excluded_content)
         parts.append("\n")
 
     parts.append("\n---\n")
 
     ch3 = _read_if_exists(os.path.join(wd, "chapter3.md"), "")
     if ch3:
+        ch3 = _strip_leading_heading(ch3, "年度结果预判评分")
+        parts.append("### 3. 年度结果预判评分\n\n")
         parts.append(ch3)
         parts.append("\n---\n")
 
     ch4 = _read_if_exists(os.path.join(wd, "chapter4.md"), "")
     if ch4:
+        ch4 = _strip_leading_heading(ch4, "月度汇报入口")
+        parts.append("### 4. 月度汇报入口\n\n")
         parts.append(ch4)
         parts.append("\n---\n")
 
@@ -1205,6 +1297,11 @@ def assemble_report(args):
         parts.append(ledger)
 
     final_report = "\n".join(parts)
+
+    if re.search(r'<(?:p|span|div|br|strong|em|ul|ol|li|a|h[1-6])\b', final_report, re.IGNORECASE):
+        _log("Warning: residual HTML detected in final report, stripping...")
+        final_report = _strip_html(final_report)
+
     output_path = args.output or os.path.join(wd, "report_selfcheck.md")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(final_report)
