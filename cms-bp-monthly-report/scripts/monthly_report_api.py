@@ -1313,9 +1313,10 @@ def assemble_report(args):
 # ─── save_openclaw_report (Phase 16) ─────────────────────────────
 
 def save_openclaw_report(args):
-    """[Phase 16] Save report to BP via saveOpenClawReport (2.33).
+    """[Phase 16] Save report content to bp_openclaw_task via /bp/monthly/report/save.
 
-    Does NOT send as draft — directly saves to BP system. No reportRecordId needed.
+    Saves reportContent to bp_openclaw_task and marks task as SUCCESS.
+    No reportRecordId needed, no draft sending involved.
     """
     if not args.group_id:
         return {"error": "group_id is required for save_openclaw_report"}
@@ -1343,10 +1344,10 @@ def save_openclaw_report(args):
     }
 
     _log(f"Saving openclaw report: groupId={args.group_id}, month={args.month}")
-    result = _request("POST", "/bp/monthly/report/saveOpenClawReport", json_body=body)
+    result = _request("POST", "/bp/monthly/report/save", json_body=body)
 
     if result.get("success"):
-        _log(f"OpenClaw report saved. groupId={args.group_id}, month={args.month}, data={result.get('data')}")
+        _log(f"OpenClaw report saved. groupId={args.group_id}, month={args.month}, taskId={result.get('data')}")
 
     return result
 

@@ -4,6 +4,20 @@
 
 ---
 
+## v1.3 — 2026-04-23  流程改造：bp_monthly_report → bp_openclaw_task
+
+### 变更：Skill 写接口底层从 bp_monthly_report 切换到 bp_openclaw_task
+
+| 项目 | 说明 |
+|------|------|
+| **背景** | 原流程中 `save` 和 `updateStatus` 先写 `bp_monthly_report`，再联动 `bp_openclaw_task`。Skill 流程实际不需要 `bp_monthly_report` |
+| **变更** | PMS 端 `saveOrUpdateMonthlyReport` 和 `updateGenerateStatus` 底层实现改为直接操作 `bp_openclaw_task`，不再写 `bp_monthly_report` |
+| **接口不变** | Open 端 `/bp/monthly/report/save` 和 `/bp/monthly/report/updateStatus` 路径和参数完全不变 |
+| **脚本调整** | `save_openclaw_report` 改调 `/bp/monthly/report/save`（原来调的 `/bp/monthly/report/saveOpenClawReport` 后端不存在）|
+| **流程简化** | `save` 接口保存内容时自动标记任务 SUCCESS，不再需要额外调 `update_report_status --status 1`；仅失败时才需调 `update_report_status --status 2` |
+
+---
+
 ## v1.2 — 2026-04-15  稳定性加固
 
 ### 问题 1：`_do_request` 中 headers 字典被 mutation

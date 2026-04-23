@@ -73,7 +73,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_op
   --content_file "/tmp/bp_report_{groupId}_{month}/report_selfcheck.md"
 ```
 
-保存成功后，调用 `update_report_status --status 1` 标记成功（若 API 未自动标记）。
+保存接口会自动将任务标记为成功，**无需再调用 `update_report_status --status 1`**。
 
 **完成后输出**：`Step 4 完成 — 报告已保存到 BP 系统`
 
