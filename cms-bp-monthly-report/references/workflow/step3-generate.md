@@ -120,6 +120,8 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 
 读取所有目标的 `goal_lamp.json` + `goal_report.md` + 排除状态，生成 `overview_table.md`。
 
+**注意：`overview_table.md` 不包含 `#### 2.1 目标清单总览` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），直接从表格开始输出。
+
 **必须 7 列**：目标编号 / BP目标 / 本月承诺口径 / 本月实际 / 证据引用 / 目标灯色 / 结论一句话。
 
 所有目标均列入（含★未启动的目标）。

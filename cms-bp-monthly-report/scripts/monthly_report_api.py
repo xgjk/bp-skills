@@ -1129,6 +1129,25 @@ def assemble_report(args):
         _log(f"Warning: file not found {path}, using fallback")
         return fallback
 
+    def _strip_leading_heading(text, expected_heading_text):
+        """Strip a duplicate heading from the beginning of text if AI included one.
+
+        Matches any markdown heading level (# to ######) whose text matches
+        ``expected_heading_text`` (case-insensitive, ignores leading numbering
+        like '2.1 ').  Only removes the first line if it matches.
+        """
+        if not text:
+            return text
+        lines = text.split("\n", 1)
+        first = lines[0].strip()
+        cleaned = re.sub(r'^#{1,6}\s+', '', first)
+        cleaned = re.sub(r'^\d+(\.\d+)*\s*', '', cleaned).strip()
+        expected = re.sub(r'^\d+(\.\d+)*\s*', '', expected_heading_text).strip()
+        if cleaned.lower() == expected.lower():
+            rest = lines[1] if len(lines) > 1 else ""
+            return rest.lstrip("\n")
+        return text
+
     parts = []
 
     parts.append(_read_if_exists(os.path.join(wd, "report_header.md"), "# BP自查报告\n"))
@@ -1137,6 +1156,7 @@ def assemble_report(args):
     parts.append("### 1. 总体自查结论\n\n")
     conclusion = _read_if_exists(os.path.join(wd, "conclusion.md"), "")
     if conclusion:
+        conclusion = _strip_leading_heading(conclusion, "总体自查结论")
         parts.append(conclusion)
         parts.append("\n---\n")
 
@@ -1144,6 +1164,7 @@ def assemble_report(args):
 
     overview = _read_if_exists(os.path.join(wd, "overview_table.md"), "")
     if overview:
+        overview = _strip_leading_heading(overview, "目标清单总览")
         parts.append("#### 2.1 目标清单总览\n")
         parts.append(overview)
         parts.append("\n")
