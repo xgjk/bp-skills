@@ -274,6 +274,46 @@ def _strip_html(html):
     return text.strip()
 
 
+_ALLOWED_HTML_RE = re.compile(
+    r'<(?:span\s+style="color:#[0-9a-fA-F]{6};\s*font-weight:700;">|/span>|div\s+class="people-suggest">|/div>)',
+    re.IGNORECASE,
+)
+
+_ALL_HTML_RE = re.compile(r'<(?:p|span|div|br|strong|em|ul|ol|li|a|h[1-6])\b', re.IGNORECASE)
+
+
+def _strip_residual_html(text):
+    """Strip unwanted HTML from final report while preserving template-defined tags.
+
+    Keeps: <span style="color:#xxxxxx; font-weight:700;">, </span>,
+           <div class="people-suggest">, </div>
+    Strips: all other HTML tags (<p>, <strong>, <br>, <a>, etc.)
+    """
+    if not text:
+        return text
+
+    allowed_placeholders = {}
+    counter = [0]
+
+    def _save_allowed(m):
+        key = f"\x00ALLOWED_{counter[0]}\x00"
+        allowed_placeholders[key] = m.group(0)
+        counter[0] += 1
+        return key
+
+    protected = _ALLOWED_HTML_RE.sub(_save_allowed, text)
+
+    if _ALL_HTML_RE.search(protected):
+        _log("Warning: residual HTML detected in final report, stripping...")
+        protected = re.sub(r'<br\s*/?>', '\n', protected)
+        protected = re.sub(r'<[^>]+>', '', protected)
+
+    for key, original in allowed_placeholders.items():
+        protected = protected.replace(key, original)
+
+    return protected
+
+
 CONTENT_PREVIEW_CHARS = 300
 
 
@@ -1298,9 +1338,7 @@ def assemble_report(args):
 
     final_report = "\n".join(parts)
 
-    if re.search(r'<(?:p|span|div|br|strong|em|ul|ol|li|a|h[1-6])\b', final_report, re.IGNORECASE):
-        _log("Warning: residual HTML detected in final report, stripping...")
-        final_report = _strip_html(final_report)
+    final_report = _strip_residual_html(final_report)
 
     output_path = args.output or os.path.join(wd, "report_selfcheck.md")
     with open(output_path, "w", encoding="utf-8") as f:
