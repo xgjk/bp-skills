@@ -27,7 +27,14 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 | 7 | `chapter4.md` | 4. 月度汇报入口 |
 | 8 | `evidence_ledger.md` | 附录：证据索引 |
 
-输出：`/home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/report_selfcheck.md`
+拼接时脚本还会读取每个目标的 `progress.json`，自动注入三层嵌套的层级标签：
+- `<div data-bp-level="goal" data-bp-id="{goalId}">` — 包裹整个目标块
+- `<div data-bp-level="kr" data-bp-id="{krId}">` — 包裹 KR 及其下所有举措
+- `<div data-bp-level="action" data-bp-id="{actionId}">` — 包裹参与自查的举措（排除举措不包裹）
+
+AI 在 Step 3d 生成 `goal_report.md` 时无需关心这些标签。
+
+输出：`/tmp/bp/bp_report_{groupId}_{month}/report_selfcheck.md`
 
 ---
 
@@ -40,12 +47,12 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 ### 执行流程
 
 1. **读取** `report_selfcheck.md` 的完整内容
-2. **逐条执行** validation-rules.md 中的 16 项校验清单，每条必须给出明确的 `✅ 通过` 或 `❌ 未通过` 结论
+2. **逐条执行** validation-rules.md 中的 17 项校验清单，每条必须给出明确的 `✅ 通过` 或 `❌ 未通过` 结论
 3. **执行** 5 条语言清洗规则扫描（技术字段泄漏、句式自然化、空值直出、模板括号注释、系统流程说明）
 4. **输出校验报告摘要**：
 
 ```
-校验结果：{通过数}/16 | 语言清洗：{通过/未通过}
+校验结果：{通过数}/17 | 语言清洗：{通过/未通过}
 ❌ 未通过项：
   - 第 X 项（校验项名称）：具体问题描述
   - 第 Y 项（校验项名称）：具体问题描述
@@ -70,7 +77,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_openclaw_report \
   --group_id "{groupId}" \
   --month "{YYYY-MM}" \
-  --content_file "/home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/report_selfcheck.md"
+  --content_file "/tmp/bp/bp_report_{groupId}_{month}/report_selfcheck.md"
 ```
 
 保存接口会自动将任务标记为成功，**无需再调用 `update_report_status --status 1`**。

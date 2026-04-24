@@ -16,7 +16,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py init_wo
 
 工作目录结构（中间产物 vs 最终拼接素材详见 SKILL.md）：
 ```
-/home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/
+/tmp/bp/bp_report_{groupId}_{month}/
   overview.json                          # Step 2a 产出
   prev_month.json                        # Step 2e 产出
   goals/
@@ -132,7 +132,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py collect
 ## 完成后产出一览
 
 ```
-/home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/
+/tmp/bp/bp_report_{groupId}_{month}/
   overview.json                          ← 2a
   prev_month.json                        ← 2e (可选)
   goals/
