@@ -128,7 +128,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_task_monthly_reading \
   --task_id "{goalId}" \
   --month "{YYYY-MM}" \
-  --content_file "/tmp/bp/bp_report_{groupId}_{month}/goals/{goalId}/goal_report.md"
+  --content_file "/tmp/openclaw-data/bp/bp_report_{groupId}_{month}/goals/{goalId}/goal_report.md"
 ```
 
 ### 未参与自查的目标
