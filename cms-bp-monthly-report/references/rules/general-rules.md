@@ -16,8 +16,7 @@
 
 ## 发送与重试规则
 
-- 发送报错重试：脚本对"汇报人ID有误"、 `resultCode=401` 、接口报错等自动等待 60 秒后重试一次
-- 发送人和 appKey 根据接收人企业自动匹配（corpId → sender + appKey 映射已内置在脚本中），查询数据使用用户提供的 key（`BP_OPEN_API_APP_KEY`），发送汇报使用与 sender 对应的机器人 key
+- 发送报错重试： `resultCode=401` 、接口报错等自动等待 60 秒后重试一次
 
 ---
 
@@ -38,6 +37,5 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py update_
 ## 错误处理
 
 - BP 数据获取失败时，提示用户检查 `BP_OPEN_API_APP_KEY` 配置
-- 报告发送失败时，保留报告文件，提示用户可手动重试
-- 脚本自动处理"汇报人ID有误"或 401 限流的重试；若重试仍失败，保留报告内容并提示用户排查
+- 报告保存失败时，保留 `report_selfcheck.md` 文件，调用 `update_report_status --status 2` 并提示用户可手动重试
 - 某个目标下无汇报数据时，在报告中标注"本月暂未收到工作汇报"并按灯色规则判断，不中断整体流程

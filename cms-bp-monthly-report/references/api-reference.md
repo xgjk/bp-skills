@@ -12,7 +12,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 
 ---
 
-## 新流程 Action 速查表
+## Action 速查表
 
 | action | 阶段 | 说明 | 必填参数 | 可选参数 |
 |--------|------|------|----------|----------|
@@ -31,24 +31,9 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 
 ---
 
-## Legacy Action 速查表
-
-以下 action 保留向后兼容，**新流程不应使用**：
-
-| action | 说明 |
-|--------|------|
-| `collect_goal_data` | [旧版] 逐目标采集汇报索引+全文池。已被 `collect_goal_progress` 替代 |
-| `collect_monthly_data` | [旧版] 一次性全量采集。已废弃 |
-| `get_report_content` | 获取单条汇报原始内容（直接调 API） |
-| `get_report_text` | 从本地汇报池读取单条纯文本全文。新流程使用 progressMarkdown 替代 |
-| `save_draft` | 保存汇报草稿到工作协同。新流程使用 `save_openclaw_report` 替代 |
-| `save_monthly_report` | 保存月报到 BP 系统（需先 save_draft 获取 report_record_id）。新流程使用 `save_openclaw_report` 替代 |
-
----
-
 ## 工作目录结构
 
-新流程所有中间产物统一保存在 `/home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/` 下（中间产物 vs 最终拼接素材详见 SKILL.md）：
+所有中间产物统一保存在 `/home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/` 下（中间产物 vs 最终拼接素材详见 SKILL.md）：
 
 ```
 /home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/
@@ -92,4 +77,4 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 | `BP_OPEN_API_APP_KEY` | 数据查询用 API 密钥（**必填**） | 无（用户提供） |
 | `BP_OPEN_API_BASE_URL` | API 地址 | `https://sg-al-cwork-web.mediportal.com.cn/open-api` |
 
-> 发送汇报的机器人 appKey 已按 sender（400001/400002/400003）内置在脚本中，根据接收人企业自动匹配，无需配置。
+> 报告保存使用 `save_openclaw_report`，通过 `BP_OPEN_API_APP_KEY` 认证，无需额外配置。

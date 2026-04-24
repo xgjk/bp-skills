@@ -1,30 +1,22 @@
 #!/usr/bin/env python3
-"""Monthly Report API CLI — fetch report content, collect monthly data, and send reports.
+"""Monthly Report API CLI — BP monthly report generation pipeline.
 
 Usage:
     python monthly_report_api.py <action> [options]
 
 Actions:
-    init_work_dir               Initialize per-run working directory /home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/
-    collect_monthly_overview     Fetch task tree + goal list (lightweight, per-goal workflow step 1)
-    collect_goal_progress        [Phase 2-3] Exclusion + getReportProgressMarkdown + black-lamp + reportId extraction
-    collect_previous_month_data  Aggregate previous month's reports + evaluations as reference context
-    build_goal_evidence          [Phase 3.5] Build goal-level evidence ledger with R-code assignment
-    build_judgment_input         [Phase 4] Assemble judgment material package for each action
-    aggregate_lamp_colors        [Phase 7] Aggregate action lamp colors -> goal lamp color
-    build_evidence_ledger        [Phase 8] Merge all goal evidence ledgers into global ledger
-    assemble_report              [Phase 15] Splice final report from intermediate artifacts
-    save_openclaw_report         [Phase 16] Save report to BP via saveOpenClawReport (2.33)
-    save_task_monthly_reading    [Step 3d+] Save goal monthly reading content via saveTaskMonthlyReading (2.35)
-    update_report_status         Update monthly report generation status (0=generating, 1=success, 2=failed)
-
-    # Legacy (kept for backward compat, new flow should not use):
-    collect_goal_data            [Legacy] Collect BP detail + report index for a single goal
-    collect_monthly_data         [Legacy] Aggregate all BP data + reports into a single JSON
-    get_report_content           Get raw report body from API by report ID
-    get_report_text              Read a single report's plain-text content from local report pool
-    save_draft                   Save monthly report as draft via draftBox API
-    save_monthly_report          Save monthly report to BP system (2.22 saveMonthlyReport)
+    init_work_dir               Initialize per-run working directory
+    collect_monthly_overview     Fetch task tree + goal list
+    collect_goal_progress        Exclusion + progress markdown + black-lamp + reportId extraction
+    collect_previous_month_data  Aggregate previous month's reports + evaluations
+    build_goal_evidence          Build goal-level evidence ledger with R-code assignment
+    build_judgment_input         Assemble judgment material package for each action
+    aggregate_lamp_colors        Aggregate action lamp colors -> goal lamp color
+    build_evidence_ledger        Merge all goal evidence ledgers into global ledger
+    assemble_report              Splice final report from intermediate artifacts
+    save_openclaw_report         Save report to BP via saveOpenClawReport (API 2.33)
+    save_task_monthly_reading    Save goal monthly reading content (API 2.35)
+    update_report_status         Update report generation status (0=generating, 1=success, 2=failed)
 
 Environment:
     BP_OPEN_API_APP_KEY       Authentication key (required)
@@ -49,75 +41,12 @@ BASE_URL = os.environ.get(
 )
 APP_KEY = os.environ.get("BP_OPEN_API_APP_KEY", "")
 TIMEOUT = 30
-DEFAULT_SENDER_ID = "400002"
-REPORT_CONTENT_MAX_CHARS = 2000
-SEND_RETRY_DELAY_SECONDS = 60
 QUERY_RETRY_DELAY_SECONDS = 60
 QUERY_MAX_RETRIES = 1
-
-CORP_ID_TO_SENDER = {
-    "1509805893730611201": "400001",
-    "1509805893730611202": "400002",
-    "1515978849561276500": "400003",
-}
-
-SENDER_TO_APP_KEY = {
-    "400001": "5xmsXv311OVq121d5hzb5yGJ6sO5AB04",
-    "400002": "1xmsXv2yv11OVqkd3zb5yG441sO5AB04",
-    "400003": "5xmsXvVyv11dskd5hzb5ys6ssswqAB04",
-}
-DEFAULT_SEND_APP_KEY = SENDER_TO_APP_KEY[DEFAULT_SENDER_ID]
 
 
 def _log(msg):
     print(f"[progress] {msg}", file=sys.stderr)
-
-
-def _resolve_sender(receiver_emp_id):
-    """Look up the receiver's corpId and return (sender_id, app_key).
-
-    Each AI assistant (sender) has its own appKey for sending reports.
-    Falls back to DEFAULT_SENDER_ID / DEFAULT_SEND_APP_KEY on failure.
-    """
-    url = f"{BASE_URL}/cwork-user/employee/getEmployeeOrgInfo"
-    headers = {"appKey": APP_KEY}
-
-    for attempt in range(1 + QUERY_MAX_RETRIES):
-        try:
-            resp = requests.get(url, params={"empId": receiver_emp_id}, headers=headers, timeout=TIMEOUT)
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("resultCode") == 1 and data.get("data"):
-                corp_id = str(data["data"].get("corpId") or "")
-                sender = CORP_ID_TO_SENDER.get(corp_id)
-                if sender:
-                    app_key = SENDER_TO_APP_KEY.get(sender, DEFAULT_SEND_APP_KEY)
-                    _log(f"Resolved sender: receiver={receiver_emp_id} -> corpId={corp_id} -> sender={sender}")
-                    return sender, app_key
-                _log(f"Unknown corpId={corp_id} for receiver={receiver_emp_id}, using default sender={DEFAULT_SENDER_ID}")
-                return DEFAULT_SENDER_ID, DEFAULT_SEND_APP_KEY
-
-            rc = data.get("resultCode")
-            is_retryable = rc in (401, 429) or (isinstance(rc, int) and rc >= 500)
-            if is_retryable and attempt < QUERY_MAX_RETRIES:
-                _log(f"Resolve sender got resultCode={rc}, waiting {QUERY_RETRY_DELAY_SECONDS}s before retry...")
-                time.sleep(QUERY_RETRY_DELAY_SECONDS)
-                continue
-
-            _log(f"Failed to get org info for receiver={receiver_emp_id}: {data.get('resultMsg')}, "
-                 f"using default sender={DEFAULT_SENDER_ID}")
-        except requests.HTTPError as e:
-            rc = e.response.status_code
-            is_retryable = rc in (401, 429) or rc >= 500
-            if is_retryable and attempt < QUERY_MAX_RETRIES:
-                _log(f"Resolve sender got HTTP {rc}, waiting {QUERY_RETRY_DELAY_SECONDS}s before retry...")
-                time.sleep(QUERY_RETRY_DELAY_SECONDS)
-                continue
-            _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
-        except Exception as e:
-            _log(f"Error resolving sender for receiver={receiver_emp_id}: {e}, using default sender={DEFAULT_SENDER_ID}")
-
-    return DEFAULT_SENDER_ID, DEFAULT_SEND_APP_KEY
 
 
 def _do_request(method, url, headers, params=None, json_body=None):
@@ -198,32 +127,6 @@ def _collect_all_ids(nodes):
     return ids
 
 
-def _collect_goal_ids(nodes):
-    """Collect IDs of top-level goal nodes (type contains '目标')."""
-    ids = []
-    for node in (nodes or []):
-        ntype = node.get("type", "")
-        if "目标" in ntype:
-            nid = node.get("id")
-            if nid:
-                ids.append(str(nid))
-    return ids
-
-
-def _month_time_range(month_str):
-    """Convert 'YYYY-MM' to (start, end) datetime strings."""
-    year, month = int(month_str[:4]), int(month_str[5:7])
-    last_day = calendar.monthrange(year, month)[1]
-    return (f"{year:04d}-{month:02d}-01 00:00:00",
-            f"{year:04d}-{month:02d}-{last_day:02d} 23:59:59")
-
-
-def _truncate(text, max_chars=REPORT_CONTENT_MAX_CHARS):
-    if text and len(text) > max_chars:
-        return text[:max_chars] + " [...truncated]"
-    return text
-
-
 def _collect_goal_summary(nodes):
     """Extract summary info for each top-level goal from slim task tree."""
     goals = []
@@ -238,32 +141,6 @@ def _collect_goal_summary(nodes):
                 "statusDesc": node.get("statusDesc", ""),
             })
     return goals
-
-
-def _extract_ids_from_goal_detail(goal_detail):
-    """Recursively extract all node IDs from a goal detail response.
-
-    Handles both field naming conventions from the API:
-    - keyResultList / keyResults for KR list
-    - actionList / actions for action list
-    """
-    ids = []
-    if not goal_detail:
-        return ids
-    gid = goal_detail.get("id")
-    if gid:
-        ids.append(str(gid))
-    kr_list = goal_detail.get("keyResultList") or goal_detail.get("keyResults") or []
-    for kr in kr_list:
-        kid = kr.get("id")
-        if kid:
-            ids.append(str(kid))
-        action_list = kr.get("actionList") or kr.get("actions") or []
-        for action in action_list:
-            aid = action.get("id")
-            if aid:
-                ids.append(str(aid))
-    return ids
 
 
 def _strip_html(html):
@@ -313,37 +190,6 @@ def _strip_residual_html(text):
         protected = protected.replace(key, original)
 
     return protected
-
-
-CONTENT_PREVIEW_CHARS = 300
-
-
-def _build_reply(reply):
-    """Build a slim reply dict from raw API reply object."""
-    return {
-        "replyId": str(reply.get("replyId") or ""),
-        "content": _strip_html(reply.get("contentHtml") or reply.get("content") or ""),
-        "replyEmpId": reply.get("replyEmpId"),
-        "replyEmpName": reply.get("replyEmpName"),
-        "createTime": reply.get("createTime"),
-    }
-
-
-def _build_report_content(rd, truncate=True):
-    """Build a report content dict from raw API response."""
-    content_html = rd.get("contentHtml") or rd.get("content") or ""
-    raw_replies = rd.get("replies") or []
-    replies = [_build_reply(r) for r in raw_replies]
-    return {
-        "reportId": str(rd.get("id") or rd.get("reportId") or ""),
-        "title": rd.get("main", ""),
-        "content": _truncate(content_html) if truncate else content_html,
-        "contentType": rd.get("contentType", ""),
-        "createTime": rd.get("createTime"),
-        "authorEmpId": rd.get("writeEmpId") or rd.get("empId") or rd.get("authorEmpId") or rd.get("createBy"),
-        "authorName": rd.get("writeEmpName") or rd.get("empName") or rd.get("authorName") or rd.get("createByName"),
-        "replies": replies,
-    }
 
 
 # ─── Goal detail slimming ─────────────────────────────────────────
@@ -405,37 +251,6 @@ def _slim_goal_detail(detail):
     kr_list = detail.get("keyResultList") or detail.get("keyResults") or []
     slim["keyResultList"] = [_slim_kr(kr) for kr in kr_list]
     return slim
-
-
-def _build_node_lookup(goal_detail):
-    """Build taskId -> {name, fullLevelNumber, nodeType} lookup from goalDetail tree."""
-    lookup = {}
-    if not goal_detail:
-        return lookup
-    gid = str(goal_detail.get("id", ""))
-    if gid:
-        lookup[gid] = {
-            "name": _strip_html(goal_detail.get("name", "")),
-            "fullLevelNumber": goal_detail.get("fullLevelNumber", ""),
-            "nodeType": "目标",
-        }
-    for kr in goal_detail.get("keyResultList") or goal_detail.get("keyResults") or []:
-        kid = str(kr.get("id", ""))
-        if kid:
-            lookup[kid] = {
-                "name": _strip_html(kr.get("name", "")),
-                "fullLevelNumber": kr.get("fullLevelNumber", ""),
-                "nodeType": "关键成果",
-            }
-        for action in kr.get("actionList") or kr.get("actions") or []:
-            aid = str(action.get("id", ""))
-            if aid:
-                lookup[aid] = {
-                    "name": _strip_html(action.get("name", "")),
-                    "fullLevelNumber": action.get("fullLevelNumber", ""),
-                    "nodeType": "举措",
-                }
-    return lookup
 
 
 # ─── Working directory helpers ────────────────────────────────────
@@ -1440,576 +1255,6 @@ def save_task_monthly_reading(args):
     return result
 
 
-# ─── collect_goal_data [Legacy] ──────────────────────────────────
-
-def collect_goal_data(args):
-    """Collect BP detail + reports for a single goal (per-goal granularity).
-
-    Outputs a lightweight JSON with structure + report index (no full text),
-    and writes each report's full text to a shared report pool directory.
-
-    1. Fetch goal detail (with KRs and actions)
-    2. Extract all node IDs under this goal
-    3. Query reports for each node within the month
-    4. Fetch full report content for all unique report IDs
-    5. Build reportIndex with relatedNodes (which KR/action each report maps to)
-    6. Write report full text to /home/node/.openclaw/workspace/files/bp/reports_{groupId}/ (shared pool, deduped)
-    7. Write lightweight goal_data JSON (slimmed goalDetail + reportIndex + reports refs)
-    """
-    if not args.goal_id:
-        return {"error": "goal_id is required for collect_goal_data"}
-    if not args.month:
-        return {"error": "month (YYYY-MM) is required for collect_goal_data"}
-
-    errors = []
-    time_start, time_end = _month_time_range(args.month)
-
-    _log(f"Fetching goal detail: {args.goal_id}")
-    detail = _request("GET", "/bp/task/v2/getGoalAndKeyResult", params={"id": args.goal_id})
-    if not detail.get("success"):
-        return {"error": f"Failed to fetch goal detail: {detail.get('error')}"}
-
-    goal_detail_raw = detail["data"]
-    node_ids = _extract_ids_from_goal_detail(goal_detail_raw)
-    node_lookup = _build_node_lookup(goal_detail_raw)
-    _log(f"Goal has {len(node_ids)} nodes")
-
-    task_report_ids = {}
-    all_report_ids = set()
-    page_size = 200
-    for i, tid in enumerate(node_ids, 1):
-        page_index = 1
-        tid_biz_ids = []
-        while True:
-            body = {
-                "taskId": tid,
-                "pageIndex": page_index,
-                "pageSize": page_size,
-                "businessTimeStart": time_start,
-                "businessTimeEnd": time_end,
-            }
-            result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
-            if result.get("success"):
-                records = result["data"].get("list") or []
-                for rec in records:
-                    bid = rec.get("bizId")
-                    if bid:
-                        bid_str = str(bid)
-                        tid_biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
-                        all_report_ids.add(bid_str)
-                if len(records) < page_size:
-                    break
-                page_index += 1
-            else:
-                errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
-                break
-        if tid_biz_ids:
-            task_report_ids[tid] = tid_biz_ids
-
-    _log(f"Found {len(all_report_ids)} unique reports across {len(task_report_ids)} nodes")
-
-    report_contents = {}
-    for i, rid in enumerate(sorted(all_report_ids), 1):
-        if i % 10 == 0 or i == len(all_report_ids):
-            _log(f"  fetching report content {i}/{len(all_report_ids)}")
-        result = _request("GET", "/work-report/report/info", params={"reportId": rid})
-        if result.get("success") and result["data"]:
-            rc = _build_report_content(result["data"], truncate=False)
-            rc["reportId"] = rid
-            report_contents[rid] = rc
-        else:
-            errors.append({"step": "report_content", "id": rid, "error": result.get("error")})
-
-    report_task_mapping = {}
-    for tid, biz_entries in task_report_ids.items():
-        for entry in biz_entries:
-            bid = entry["bizId"]
-            report_task_mapping.setdefault(bid, [])
-            if tid not in report_task_mapping[bid]:
-                report_task_mapping[bid].append(tid)
-
-    group_id = getattr(args, "group_id", None) or ""
-
-    # --- Write full text to shared report pool (deduped by reportId) ---
-    reports_dir = f"/home/node/.openclaw/workspace/files/bp/reports_{group_id}"
-    os.makedirs(reports_dir, exist_ok=True)
-    for rid, rc in report_contents.items():
-        report_path = os.path.join(reports_dir, f"{rid}.json")
-        if not os.path.exists(report_path):
-            plain_text = _strip_html(rc.get("content", ""))
-            file_content = {
-                "reportId": rid,
-                "title": rc.get("title", ""),
-                "content": plain_text,
-                "contentHtml": rc.get("content", ""),
-                "authorEmpId": rc.get("authorEmpId", ""),
-                "authorName": rc.get("authorName", ""),
-                "createTime": rc.get("createTime"),
-                "replies": rc.get("replies", []),
-            }
-            with open(report_path, "w", encoding="utf-8") as f:
-                json.dump(file_content, f, ensure_ascii=False, indent=2)
-
-    # --- Build reportIndex (lightweight, with relatedNodes) ---
-    report_index = {}
-    for rid, rc in report_contents.items():
-        related_task_ids = report_task_mapping.get(rid, [])
-        related_nodes = []
-        for tid in related_task_ids:
-            node_info = node_lookup.get(tid)
-            if node_info:
-                related_nodes.append({"taskId": tid, **node_info})
-            else:
-                related_nodes.append({"taskId": tid, "name": "", "fullLevelNumber": "", "nodeType": ""})
-
-        plain_text = _strip_html(rc.get("content", ""))
-        replies = rc.get("replies", [])
-        report_index[rid] = {
-            "reportId": rid,
-            "title": rc.get("title", ""),
-            "authorEmpId": rc.get("authorEmpId", ""),
-            "authorName": rc.get("authorName", ""),
-            "createTime": rc.get("createTime"),
-            "charCount": len(plain_text),
-            "contentPreview": plain_text[:CONTENT_PREVIEW_CHARS],
-            "replyCount": len(replies),
-            "replies": replies,
-            "relatedNodes": related_nodes,
-        }
-
-    # --- Build reports refs (reportId only, no full text) ---
-    reports_refs = {}
-    for tid, biz_entries in task_report_ids.items():
-        task_refs = []
-        for entry in biz_entries:
-            bid = entry["bizId"]
-            if bid in report_contents:
-                task_refs.append({
-                    "reportId": bid,
-                    "type": entry.get("type", ""),
-                    "businessTime": entry.get("businessTime"),
-                })
-        if task_refs:
-            reports_refs[tid] = task_refs
-
-    output = {
-        "goalId": args.goal_id,
-        "groupId": group_id,
-        "month": args.month,
-        "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "goalDetail": _slim_goal_detail(goal_detail_raw),
-        "reportIndex": report_index,
-        "reports": reports_refs,
-        "reportsDir": reports_dir,
-        "stats": {
-            "nodeCount": len(node_ids),
-            "uniqueReportCount": len(all_report_ids),
-            "fetchedReportContents": len(report_contents),
-        },
-    }
-    if errors:
-        output["errors"] = errors
-
-    output_path = args.output or f"/home/node/.openclaw/workspace/files/bp/goal_data_{group_id}_{args.goal_id}.json"
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-
-    _log(f"Done! Goal data written to {output_path} (reports in {reports_dir})")
-    return {"success": True, "outputFile": output_path, "reportsDir": reports_dir, "stats": output["stats"]}
-
-
-# ─── collect_monthly_data (legacy, kept for backward compatibility) ──
-
-def collect_monthly_data(args):
-    """Aggregate all BP structure + report data for one employee/month.
-
-    Performs the following in a single invocation:
-    1. Fetch task tree for the group
-    2. Fetch goal details for each top-level goal
-    3. Query reports for every task node within the month
-    4. Fetch report content for all unique report IDs
-    5. Write aggregated JSON to --output file
-    """
-    if not args.group_id:
-        return {"error": "group_id is required for collect_monthly_data"}
-    if not args.month:
-        return {"error": "month (YYYY-MM) is required for collect_monthly_data"}
-
-    errors = []
-    time_start, time_end = _month_time_range(args.month)
-
-    # Step 1: task tree
-    _log("Fetching task tree...")
-    tree_result = _request("GET", "/bp/task/v2/getSimpleTree", params={"groupId": args.group_id})
-    if not tree_result.get("success"):
-        return {"error": f"Failed to fetch task tree: {tree_result.get('error')}"}
-
-    raw_tree = tree_result["data"]
-    task_tree = _slim_task_tree(raw_tree) if raw_tree else []
-    all_ids = _collect_all_ids(task_tree)
-    goal_ids = _collect_goal_ids(task_tree)
-    _log(f"Task tree: {len(all_ids)} nodes, {len(goal_ids)} goals")
-
-    # Step 2: goal details
-    goal_details = {}
-    for i, gid in enumerate(goal_ids, 1):
-        _log(f"Fetching goal detail {i}/{len(goal_ids)}: {gid}")
-        detail = _request("GET", "/bp/task/v2/getGoalAndKeyResult", params={"id": gid})
-        if detail.get("success"):
-            goal_details[gid] = detail["data"]
-        else:
-            errors.append({"step": "goal_detail", "id": gid, "error": detail.get("error")})
-
-    # Step 3: query reports for each task node
-    _log(f"Querying reports for {len(all_ids)} task nodes...")
-    task_report_ids = {}
-    all_report_ids = set()
-    page_size = 200
-
-    for i, tid in enumerate(all_ids, 1):
-        if i % 10 == 0 or i == len(all_ids):
-            _log(f"  reports query {i}/{len(all_ids)}")
-        page_index = 1
-        tid_biz_ids = []
-        while True:
-            body = {
-                "taskId": tid,
-                "pageIndex": page_index,
-                "pageSize": page_size,
-                "businessTimeStart": time_start,
-                "businessTimeEnd": time_end,
-            }
-            result = _request("POST", "/bp/task/relation/pageAllReports", json_body=body)
-            if result.get("success"):
-                records = result["data"].get("list") or []
-                for rec in records:
-                    bid = rec.get("bizId")
-                    if bid:
-                        bid_str = str(bid)
-                        tid_biz_ids.append({"bizId": bid_str, "type": rec.get("type", ""), "businessTime": rec.get("businessTime")})
-                        all_report_ids.add(bid_str)
-                if len(records) < page_size:
-                    break
-                page_index += 1
-            else:
-                errors.append({"step": "task_reports", "id": tid, "error": result.get("error")})
-                break
-        if tid_biz_ids:
-            task_report_ids[tid] = tid_biz_ids
-
-    _log(f"Found {len(all_report_ids)} unique reports across {len(task_report_ids)} tasks")
-
-    # Step 4: fetch report content for all unique report IDs
-    report_contents = {}
-    report_id_list = sorted(all_report_ids)
-    for i, rid in enumerate(report_id_list, 1):
-        if i % 10 == 0 or i == len(report_id_list):
-            _log(f"  fetching report content {i}/{len(report_id_list)}")
-        result = _request("GET", "/work-report/report/info", params={"reportId": rid})
-        if result.get("success") and result["data"]:
-            rc = _build_report_content(result["data"], truncate=False)
-            rc["reportId"] = rid
-            report_contents[rid] = rc
-        else:
-            errors.append({"step": "report_content", "id": rid, "error": result.get("error")})
-
-    # Step 5: build reverse index — reportId -> list of associated taskIds
-    report_task_mapping = {}
-    for tid, biz_entries in task_report_ids.items():
-        for entry in biz_entries:
-            bid = entry["bizId"]
-            report_task_mapping.setdefault(bid, [])
-            if tid not in report_task_mapping[bid]:
-                report_task_mapping[bid].append(tid)
-
-    # Step 6: assemble per-task report data (backward-compatible)
-    reports_by_task = {}
-    for tid, biz_entries in task_report_ids.items():
-        task_reports = []
-        for entry in biz_entries:
-            bid = entry["bizId"]
-            rc = report_contents.get(bid)
-            if rc:
-                task_reports.append({
-                    **rc,
-                    "type": entry.get("type", ""),
-                    "businessTime": entry.get("businessTime"),
-                })
-        if task_reports:
-            reports_by_task[tid] = task_reports
-
-    # Step 7: content dedup — group reports with near-identical content
-    _seen_titles = {}
-    unique_work_items = 0
-    for rid, rc in report_contents.items():
-        title_key = (rc.get("title") or "").strip()
-        if title_key and title_key in _seen_titles:
-            _seen_titles[title_key].append(rid)
-        else:
-            _seen_titles[title_key or rid] = [rid]
-            unique_work_items += 1
-
-    # Step 8: build output
-    output = {
-        "groupId": args.group_id,
-        "month": args.month,
-        "collectTime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "taskTree": task_tree,
-        "goalDetails": goal_details,
-        "uniqueReportMap": report_contents,
-        "reportTaskMapping": report_task_mapping,
-        "reports": reports_by_task,
-        "stats": {
-            "totalTasks": len(all_ids),
-            "totalGoals": len(goal_ids),
-            "totalReportQueries": len(task_report_ids),
-            "rawReportCount": sum(len(v) for v in task_report_ids.values()),
-            "uniqueReportCount": len(all_report_ids),
-            "fetchedReportContents": len(report_contents),
-            "uniqueWorkItemCount": unique_work_items,
-        },
-    }
-    if errors:
-        output["errors"] = errors
-
-    output_path = args.output
-    if not output_path:
-        output_path = f"/home/node/.openclaw/workspace/files/bp/monthly_data_{args.group_id}.json"
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-
-    _log(f"Done! Output written to {output_path}")
-    return {"success": True, "outputFile": output_path, "stats": output["stats"]}
-
-
-def get_report_content(args):
-    """GET /work-report/report/info?reportId={id}"""
-    if not args.report_id:
-        return {"error": "report_id is required for get_report_content"}
-    return _request("GET", "/work-report/report/info", params={"reportId": args.report_id})
-
-
-def get_report_text(args):
-    """Read a single report's plain-text content from the local report pool.
-
-    Looks up /home/node/.openclaw/workspace/files/bp/reports_{groupId}/{reportId}.json first (written by collect_goal_data).
-    Falls back to fetching from API if local file not found.
-    """
-    if not args.report_id:
-        return {"error": "report_id is required for get_report_text"}
-    if not args.group_id:
-        return {"error": "group_id is required for get_report_text"}
-
-    report_path = f"/home/node/.openclaw/workspace/files/bp/reports_{args.group_id}/{args.report_id}.json"
-    if os.path.isfile(report_path):
-        with open(report_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {"success": True, "source": "local", **data}
-
-    _log(f"Local file not found: {report_path}, fetching from API...")
-    result = _request("GET", "/work-report/report/info", params={"reportId": args.report_id})
-    if result.get("success") and result["data"]:
-        rc = _build_report_content(result["data"], truncate=False)
-        return {
-            "success": True,
-            "source": "api",
-            "reportId": args.report_id,
-            "title": rc.get("title", ""),
-            "content": _strip_html(rc.get("content", "")),
-            "contentHtml": rc.get("content", ""),
-            "authorEmpId": rc.get("authorEmpId", ""),
-            "authorName": rc.get("authorName", ""),
-            "createTime": rc.get("createTime"),
-            "replies": rc.get("replies", []),
-        }
-    return result
-
-
-def _do_save_draft(url, headers, body):
-    """Execute the actual HTTP POST for save_draft."""
-    resp = requests.post(url, json=body, headers=headers, timeout=TIMEOUT)
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("resultCode") != 1:
-        return {"error": data.get("resultMsg", "Unknown API error"), "resultCode": data.get("resultCode")}
-    return {"success": True, "data": data.get("data")}
-
-
-def _is_rate_limited(result):
-    """Check if the error indicates API rate limiting (resultCode 401 with valid params)."""
-    return result.get("resultCode") == 401
-
-
-def _should_retry(result):
-    """Determine if save_draft should retry based on error type."""
-    error_msg = str(result.get("error", ""))
-    if "汇报人ID有误" in error_msg:
-        return "emp_id_error"
-    if _is_rate_limited(result):
-        return "rate_limited"
-    return None
-
-
-def save_draft(args):
-    """POST /work-report/draftBox/saveOrUpdate — save monthly report as draft.
-
-    Uses the built-in robot app key, NOT the user's BP_OPEN_API_APP_KEY.
-    Retryable errors (rate limit 401, "汇报人ID有误"):
-    verify key, wait 60s, retry once.
-    """
-    if not args.receiver_emp_id:
-        return {"error": "receiver_emp_id is required for save_draft"}
-    if not args.title:
-        return {"error": "title is required for save_draft"}
-    if not args.content_file:
-        return {"error": "content_file is required for save_draft"}
-
-    content_path = args.content_file
-    if not os.path.isfile(content_path):
-        return {"error": f"Content file not found: {content_path}"}
-
-    with open(content_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    if not content.strip():
-        return {"error": "Content file is empty"}
-
-    first_receiver = args.receiver_emp_id.split(",")[0].strip()
-    if args.sender_id:
-        sender_id = args.sender_id
-        send_app_key = SENDER_TO_APP_KEY.get(sender_id, DEFAULT_SEND_APP_KEY)
-    else:
-        sender_id, send_app_key = _resolve_sender(first_receiver)
-
-    receiver_list = [
-        {"empId": rid.strip()}
-        for rid in args.receiver_emp_id.split(",") if rid.strip()
-    ]
-
-    body = {
-        "main": args.title,
-        "contentHtml": content,
-        "contentType": "markdown",
-        "comeFrom": "BP-API调用",
-        "templateId": 2044631241659035650,
-        "flowType": "merge_template_node",
-        "reportLevelList": [
-            {
-                "level": 1,
-                "levelUserList": receiver_list,
-                "nodeName": "建议",
-                "type": "suggest",
-            },
-            {
-                 "level": 2,
-                 "levelUserList": receiver_list,
-                 "nodeName": "建议",
-                 "type": "suggest",
-             }
-        ],
-    }
-
-    copy_ids = getattr(args, "copy_emp_ids", None)
-    if copy_ids:
-        body["copyEmpIdList"] = [cid.strip() for cid in copy_ids.split(",") if cid.strip()]
-
-    url = f"{BASE_URL}/work-report/draftBox/saveOrUpdate"
-    headers = {"appKey": send_app_key, "Content-Type": "application/json"}
-    _log(f"Saving draft with sender={sender_id}, appKey={send_app_key[:8]}...")
-
-    try:
-        result = _do_save_draft(url, headers, body)
-    except requests.RequestException as exc:
-        return {"error": f"Network error: {exc}"}
-
-    retry_reason = _should_retry(result) if result.get("error") else None
-    if retry_reason:
-        if retry_reason == "emp_id_error":
-            _log(f"Got '汇报人ID有误' for empId={args.receiver_emp_id}. "
-                 f"Verifying appKey matches sender={sender_id}...")
-        elif retry_reason == "rate_limited":
-            _log(f"Got resultCode=401 (rate limited) for empId={args.receiver_emp_id}. "
-                 f"Params look correct, treating as rate limit...")
-
-        expected_key = SENDER_TO_APP_KEY.get(sender_id, DEFAULT_SEND_APP_KEY)
-        if headers["appKey"] != expected_key:
-            _log(f"Key mismatch detected, switching to correct key for sender={sender_id}")
-            headers["appKey"] = expected_key
-
-        _log(f"Waiting {SEND_RETRY_DELAY_SECONDS}s before retry...")
-        time.sleep(SEND_RETRY_DELAY_SECONDS)
-        try:
-            result = _do_save_draft(url, headers, body)
-            if result.get("success"):
-                _log("Retry succeeded.")
-            else:
-                _log(f"Retry failed: {result.get('error')}")
-        except requests.RequestException as exc:
-            return {"error": f"Network error on retry: {exc}"}
-
-    if result.get("success"):
-        raw_data = result.get("data")
-        if isinstance(raw_data, dict):
-            report_record_id = str(raw_data.get("id", ""))
-        else:
-            report_record_id = str(raw_data) if raw_data else ""
-
-        result["report_record_id"] = report_record_id
-        _log(f"Draft saved successfully. Receiver: {args.receiver_emp_id}, Sender: {sender_id}, "
-             f"report_record_id: {report_record_id}")
-
-    return result
-
-
-def save_monthly_report(args):
-    """POST /bp/monthly/report/save — persist report to BP system.
-
-    Uses the data-query APP_KEY (not the robot key),
-    because the BP monthly report save API requires user-level permission.
-    reportRecordId is required — pass the id returned by save_draft.
-    """
-    if not args.group_id:
-        return {"error": "group_id is required for save_monthly_report"}
-    if not args.month:
-        return {"error": "month is required for save_monthly_report"}
-    if not args.content_file:
-        return {"error": "content_file is required for save_monthly_report"}
-    if not getattr(args, "report_record_id", None):
-        return {"error": "report_record_id is required for save_monthly_report (pass the id returned by save_draft)"}
-
-    content_path = args.content_file
-    if not os.path.isfile(content_path):
-        return {"error": f"Content file not found: {content_path}"}
-
-    with open(content_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    if not content.strip():
-        return {"error": "Content file is empty"}
-
-    if not APP_KEY:
-        return {"error": "BP_OPEN_API_APP_KEY is not configured. Required for save_monthly_report."}
-
-    body = {
-        "groupId": args.group_id,
-        "reportContent": content,
-        "reportMonth": args.month,
-        "reportRecordId": args.report_record_id,
-    }
-
-    _log(f"Saving monthly report: groupId={args.group_id}, month={args.month}")
-    result = _request("POST", "/bp/monthly/report/save", json_body=body)
-
-    if result.get("success"):
-        result["report_record_id"] = args.report_record_id
-        _log(f"Monthly report saved. groupId: {args.group_id}, month: {args.month}, "
-             f"bp_report_id(BP系统月报ID): {result['data']}, "
-             f"report_record_id(工作汇报草稿ID,用于生成链接): {args.report_record_id}")
-
-    return result
-
-
 def update_report_status(args):
     """POST /bp/monthly/report/updateStatus — update monthly report generation status.
 
@@ -2156,7 +1401,6 @@ def collect_previous_month_data(args):
 
 
 ACTION_MAP = {
-    # New flow (Phase 1-16)
     "init_work_dir": init_work_dir,
     "collect_monthly_overview": collect_monthly_overview,
     "collect_goal_progress": collect_goal_progress,
@@ -2169,13 +1413,6 @@ ACTION_MAP = {
     "save_openclaw_report": save_openclaw_report,
     "save_task_monthly_reading": save_task_monthly_reading,
     "update_report_status": update_report_status,
-    # Legacy (backward compat)
-    "collect_goal_data": collect_goal_data,
-    "collect_monthly_data": collect_monthly_data,
-    "get_report_content": get_report_content,
-    "get_report_text": get_report_text,
-    "save_draft": save_draft,
-    "save_monthly_report": save_monthly_report,
 }
 
 
@@ -2195,16 +1432,9 @@ def main():
     parser.add_argument("--employee_id", help="Employee ID (for evidence level: primary vs secondary)")
     parser.add_argument("--r_start_index", help="R-code start index (for build_goal_evidence, default=1)")
     parser.add_argument("--report_month", help="The actual report month (for collect_previous_month_data to locate work dir)")
-    # Legacy / shared
-    parser.add_argument("--report_id", help="Report ID (for get_report_content)")
-    parser.add_argument("--receiver_emp_id", help="Receiver employee ID (for save_draft)")
-    parser.add_argument("--title", help="Report title (for save_draft)")
     parser.add_argument("--task_id", help="Task ID (for save_task_monthly_reading)")
     parser.add_argument("--content_file", help="Path to markdown/html content file")
     parser.add_argument("--content", help="Inline content string (for save_task_monthly_reading, alternative to --content_file)")
-    parser.add_argument("--sender_id", help=f"Sender system user ID (default: {DEFAULT_SENDER_ID})")
-    parser.add_argument("--report_record_id", help="Report record ID from save_draft (for save_monthly_report)")
-    parser.add_argument("--copy_emp_ids", help="Comma-separated copy employee IDs (for save_draft)")
     parser.add_argument("--status", help="Generate status: 0=generating, 1=success, 2=failed (for update_report_status)")
     parser.add_argument("--fail_reason", help="Failure reason (for update_report_status, required when status=2)")
 

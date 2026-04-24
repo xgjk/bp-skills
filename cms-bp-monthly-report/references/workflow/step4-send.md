@@ -64,7 +64,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 
 ## 4c: 保存到 BP 系统（阶段 16）
 
-**不再通过 save_draft 发送草稿**，直接保存到 BP 系统：
+直接保存到 BP 系统：
 
 ```bash
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_openclaw_report \

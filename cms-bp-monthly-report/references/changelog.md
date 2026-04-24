@@ -29,46 +29,36 @@
 | **修复** | POST 分支改为创建新 dict `req_headers = {**headers, "Content-Type": "application/json"}`，不修改原始 headers |
 | **预防** | 所有构建请求 header 的地方禁止直接修改传入对象，统一用浅拷贝或新建 dict |
 
-### 问题 2：`save_monthly_report` 绕过 `_request` 缺少 retry 能力
+### 问题 2：保存月报绕过 `_request` 缺少 retry 能力
 
 | 项目 | 说明 |
 |------|------|
-| **现象** | `save_monthly_report` 直接 `requests.post()` 调用 API，没有经过 `_request` 包装，因此不具备 retry 和标准化错误处理 |
+| **现象** | 保存月报直接 `requests.post()` 调用 API，没有经过 `_request` 包装，因此不具备 retry 和标准化错误处理 |
 | **影响** | 保存月报时遇到 401/429/5xx 不会自动重试，直接失败 |
 | **修复** | 改为调用 `_request("POST", "/bp/monthly/report/save", json_body=body)`，统一走 retry 逻辑 |
 | **预防** | 新增 API 调用一律使用 `_request` 包装，禁止直接 `requests.get/post` |
-
-### 问题 3：`collect_monthly_data`（legacy）报告内容构建未统一
-
-| 项目 | 说明 |
-|------|------|
-| **现象** | legacy 路径的 Step 4 中构建 report content 是内联代码，而 `collect_goal_data` 已有统一的 `_build_report_content()` 辅助函数 |
-| **影响** | 两处逻辑不同步，如果 API 字段变化只改了一处，另一处会丢失数据 |
-| **修复** | legacy 路径也改为调用 `_build_report_content(result["data"], truncate=True)` |
-| **预防** | 报告内容解析统一由 `_build_report_content` 承担，禁止内联重复 |
 
 ---
 
 ## v1.1 — 2026-04-15  API 字段名修复 + 查询 retry
 
-### 问题 1（Critical）：`_extract_ids_from_goal_detail` 字段名不匹配
+### 问题 1（Critical）：API 字段名不匹配
 
 | 项目 | 说明 |
 |------|------|
 | **现象** | 函数硬编码使用 `keyResultList` 和 `actionList` 获取 KR 和 Action 列表，但 API 实际返回的字段名是 `keyResults` 和 `actions` |
-| **影响** | `collect_goal_data` 只能获取到目标本身 1 个节点的 ID，无法获取其下所有 KR 和举措节点。导致查询汇报时只查目标层的汇报，丢失 KR 和举措的全部汇报数据 |
+| **影响** | 只能获取到目标本身 1 个节点的 ID，无法获取其下所有 KR 和举措节点 |
 | **根因** | 开发时参考了旧版 API 文档或猜测字段名，未用实际 API 返回数据做验证 |
 | **修复** | 改为兼容双字段名：`goal_detail.get("keyResultList") or goal_detail.get("keyResults") or []` |
-| **验证** | 4 个目标全部重新采集验证，节点数和汇报数均与预期一致：G1=6节点/19报，G2=4节点/43报，G3=5节点/0报，G4=10节点/1报 |
 
 ### 问题 2：数据查询 API 缺少 retry 逻辑
 
 | 项目 | 说明 |
 |------|------|
-| **现象** | `_request` 函数遇到 401/429/5xx 时直接返回错误，而 `save_draft` 有独立的 retry 逻辑 |
+| **现象** | `_request` 函数遇到 401/429/5xx 时直接返回错误 |
 | **影响** | 数据采集阶段遇到瞬时限流或服务端错误会直接失败，需要人工重跑 |
 | **修复** | 重构 `_request`：拆出 `_do_request` 执行单次请求，`_request` 添加 retry 循环，对 401/429/5xx 等待 60 秒后重试一次 |
-| **预防** | 所有数据查询统一走 `_request`，retry 策略集中管理 |
+| **预防** | 所有 API 调用统一走 `_request`，retry 策略集中管理 |
 
 ---
 
@@ -100,19 +90,13 @@
 - 对关键字段（列表类型）统一使用 `or` 兼容多种命名：`obj.get("fieldA") or obj.get("fieldB") or []`
 - 部门月报脚本和个人月报脚本使用的字段名需同步检查
 
-### 2. 数据解析统一
+### 2. 网络调用统一
 
-- 报告内容构建统一使用 `_build_report_content()` 辅助函数
-- 禁止在业务函数中内联重复的 JSON 字段解析代码
-- 新增辅助函数时同步检查所有调用点
-
-### 3. 网络调用统一
-
-- 所有 API 调用（查询和写入）统一通过 `_request` 包装
-- 禁止在业务函数中直接 `requests.get/post`（`save_draft` 因需使用不同 APP_KEY 除外）
+- 所有 API 调用统一通过 `_request` 包装
+- 禁止在业务函数中直接 `requests.get/post`
 - retry 策略集中在 `_request` 管理
 
-### 4. 测试验证
+### 3. 测试验证
 
-- 修改数据采集逻辑后，必须对所有目标重新运行 `collect_goal_data` 验证节点数和汇报数
+- 修改数据采集逻辑后，必须对所有目标重新运行 `collect_goal_progress` 验证采集结果
 - 对照修改前后的数据差异，确认修复效果
