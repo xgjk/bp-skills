@@ -5,7 +5,7 @@ Usage:
     python monthly_report_api.py <action> [options]
 
 Actions:
-    init_work_dir               Initialize per-run working directory /tmp/bp_report_{groupId}_{month}/
+    init_work_dir               Initialize per-run working directory /home/node/.openclaw/workspace/files/bp/bp_report_{groupId}_{month}/
     collect_monthly_overview     Fetch task tree + goal list (lightweight, per-goal workflow step 1)
     collect_goal_progress        [Phase 2-3] Exclusion + getReportProgressMarkdown + black-lamp + reportId extraction
     collect_previous_month_data  Aggregate previous month's reports + evaluations as reference context
@@ -442,7 +442,7 @@ def _build_node_lookup(goal_detail):
 
 def _work_dir(group_id, month):
     """Return the per-run working directory path."""
-    return f"/tmp/bp_report_{group_id}_{month}"
+    return f"/home/node/.openclaw/workspace/files/bp/bp_report_{group_id}_{month}"
 
 
 def _goal_dir(group_id, month, goal_id):
@@ -1453,7 +1453,7 @@ def collect_goal_data(args):
     3. Query reports for each node within the month
     4. Fetch full report content for all unique report IDs
     5. Build reportIndex with relatedNodes (which KR/action each report maps to)
-    6. Write report full text to /tmp/reports_{groupId}/ (shared pool, deduped)
+    6. Write report full text to /home/node/.openclaw/workspace/files/bp/reports_{groupId}/ (shared pool, deduped)
     7. Write lightweight goal_data JSON (slimmed goalDetail + reportIndex + reports refs)
     """
     if not args.goal_id:
@@ -1531,7 +1531,7 @@ def collect_goal_data(args):
     group_id = getattr(args, "group_id", None) or ""
 
     # --- Write full text to shared report pool (deduped by reportId) ---
-    reports_dir = f"/tmp/reports_{group_id}"
+    reports_dir = f"/home/node/.openclaw/workspace/files/bp/reports_{group_id}"
     os.makedirs(reports_dir, exist_ok=True)
     for rid, rc in report_contents.items():
         report_path = os.path.join(reports_dir, f"{rid}.json")
@@ -1610,7 +1610,7 @@ def collect_goal_data(args):
     if errors:
         output["errors"] = errors
 
-    output_path = args.output or f"/tmp/goal_data_{group_id}_{args.goal_id}.json"
+    output_path = args.output or f"/home/node/.openclaw/workspace/files/bp/goal_data_{group_id}_{args.goal_id}.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
@@ -1774,7 +1774,7 @@ def collect_monthly_data(args):
 
     output_path = args.output
     if not output_path:
-        output_path = f"/tmp/monthly_data_{args.group_id}.json"
+        output_path = f"/home/node/.openclaw/workspace/files/bp/monthly_data_{args.group_id}.json"
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
@@ -1793,7 +1793,7 @@ def get_report_content(args):
 def get_report_text(args):
     """Read a single report's plain-text content from the local report pool.
 
-    Looks up /tmp/reports_{groupId}/{reportId}.json first (written by collect_goal_data).
+    Looks up /home/node/.openclaw/workspace/files/bp/reports_{groupId}/{reportId}.json first (written by collect_goal_data).
     Falls back to fetching from API if local file not found.
     """
     if not args.report_id:
@@ -1801,7 +1801,7 @@ def get_report_text(args):
     if not args.group_id:
         return {"error": "group_id is required for get_report_text"}
 
-    report_path = f"/tmp/reports_{args.group_id}/{args.report_id}.json"
+    report_path = f"/home/node/.openclaw/workspace/files/bp/reports_{args.group_id}/{args.report_id}.json"
     if os.path.isfile(report_path):
         with open(report_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -2076,7 +2076,7 @@ def collect_previous_month_data(args):
 
     # Step 2: fetch report content for each reportRecordId
     # Full text goes to report pool; JSON only keeps preview + charCount
-    reports_dir = f"/tmp/reports_{args.group_id}"
+    reports_dir = f"/home/node/.openclaw/workspace/files/bp/reports_{args.group_id}"
     os.makedirs(reports_dir, exist_ok=True)
 
     report_contents = []
@@ -2143,7 +2143,7 @@ def collect_previous_month_data(args):
         output["errors"] = errors
 
     report_month = getattr(args, "report_month", None) or getattr(args, "month", "") or ""
-    wd = _work_dir(args.group_id, report_month) if report_month else f"/tmp/bp_report_{args.group_id}_prev"
+    wd = _work_dir(args.group_id, report_month) if report_month else f"/home/node/.openclaw/workspace/files/bp/bp_report_{args.group_id}_prev"
     os.makedirs(wd, exist_ok=True)
     default_path = os.path.join(wd, "prev_month.json")
 
