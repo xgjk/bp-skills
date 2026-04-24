@@ -153,13 +153,7 @@ def _strip_html(html):
 
 
 _ALLOWED_HTML_RE = re.compile(
-    r'<(?:'
-    r'span\s+style="color:#[0-9a-fA-F]{6};\s*font-weight:700;">'
-    r'|/span>'
-    r'|div\s+class="people-suggest">'
-    r'|div\s+data-bp-level="(?:goal|kr|action)"\s+data-bp-id="[^"]*">'
-    r'|/div>'
-    r')',
+    r'<(?:span\s+style="color:#[0-9a-fA-F]{6};\s*font-weight:700;">|/span>|div\s+class="people-suggest">|/div>)',
     re.IGNORECASE,
 )
 
@@ -170,8 +164,7 @@ def _strip_residual_html(text):
     """Strip unwanted HTML from final report while preserving template-defined tags.
 
     Keeps: <span style="color:#xxxxxx; font-weight:700;">, </span>,
-           <div class="people-suggest">, </div>,
-           <div data-bp-level="goal|kr|action" data-bp-id="...">, </div>
+           <div class="people-suggest">, </div>
     Strips: all other HTML tags (<p>, <strong>, <br>, <a>, etc.)
     """
     if not text:
@@ -1055,117 +1048,6 @@ def build_evidence_ledger(args):
     return {"success": True, "outputFile": output_path, "totalReports": len(all_reports)}
 
 
-# ─── Goal report div wrapping ────────────────────────────────────
-
-_BP_LEVEL_NUMBER_PATTERN = r'([A-Za-z]\d+(?:-\d+)?(?:\.\d+)*)'
-_KR_HEADING_RE = re.compile(r'\*\*关键成果\s+' + _BP_LEVEL_NUMBER_PATTERN)
-_ACTION_HEADING_RE = re.compile(r'└\s*支撑举措\s+' + _BP_LEVEL_NUMBER_PATTERN)
-_SECTION_BREAK_RE = re.compile(r'^\*\*(?:偏差问题|目标级综合灯色)')
-
-
-def _build_level_number_maps(progress):
-    """Build fullLevelNumber -> id mappings for KRs and Actions from progress.json."""
-    kr_map = {}
-    action_map = {}
-    excluded_actions = set()
-
-    for kr_id, kr_info in progress.get("krData", {}).items():
-        fln = kr_info.get("fullLevelNumber", "")
-        if fln:
-            kr_map[fln] = kr_id
-
-    for action_id, action_info in progress.get("actionData", {}).items():
-        fln = action_info.get("fullLevelNumber", "")
-        if fln:
-            action_map[fln] = action_id
-        if action_info.get("excluded"):
-            excluded_actions.add(action_id)
-
-    return kr_map, action_map, excluded_actions
-
-
-def _wrap_goal_report(content, goal_id, kr_map, action_map, excluded_actions):
-    """Inject nested <div data-bp-level=...> tags around goal/kr/action blocks.
-
-    Scans the Markdown line-by-line, using fullLevelNumber patterns to detect
-    KR and Action boundaries, then wraps each block with the appropriate div.
-
-    Returns: (wrapped_content, stats) where stats is a dict with injection counts.
-    """
-    lines = content.split("\n")
-    result = []
-    in_kr = None
-    in_action = None
-    matched_kr_ids = set()
-    matched_action_ids = set()
-
-    def _close_action():
-        nonlocal in_action
-        if in_action:
-            result.append("</div>")
-            in_action = None
-
-    def _close_kr():
-        nonlocal in_kr
-        _close_action()
-        if in_kr:
-            result.append("</div>")
-            in_kr = None
-
-    for line in lines:
-        kr_match = _KR_HEADING_RE.search(line)
-        if kr_match:
-            kr_id = kr_map.get(kr_match.group(1))
-            if kr_id:
-                _close_kr()
-                result.append(f'<div data-bp-level="kr" data-bp-id="{kr_id}">')
-                in_kr = kr_id
-                matched_kr_ids.add(kr_id)
-                result.append(line)
-                continue
-
-        action_match = _ACTION_HEADING_RE.search(line)
-        if action_match:
-            action_id = action_map.get(action_match.group(1))
-            if action_id:
-                _close_action()
-                matched_action_ids.add(action_id)
-                if action_id not in excluded_actions:
-                    result.append(f'<div data-bp-level="action" data-bp-id="{action_id}">')
-                    in_action = action_id
-                result.append(line)
-                continue
-
-        if _SECTION_BREAK_RE.search(line):
-            _close_kr()
-
-        result.append(line)
-
-    _close_kr()
-
-    expected_krs = set(kr_map.values())
-    expected_actions = set(action_map.values())
-    missing_krs = expected_krs - matched_kr_ids
-    missing_actions = expected_actions - matched_action_ids
-
-    if missing_krs:
-        _log(f"Warning: goal {goal_id} missing KR div tags for IDs: {sorted(missing_krs)}")
-    if missing_actions:
-        _log(f"Warning: goal {goal_id} missing Action div tags for IDs: {sorted(missing_actions)}")
-
-    stats = {
-        "expectedKrs": len(expected_krs),
-        "matchedKrs": len(matched_kr_ids),
-        "expectedActions": len(expected_actions),
-        "matchedActions": len(matched_action_ids),
-        "missingKrIds": sorted(missing_krs),
-        "missingActionIds": sorted(missing_actions),
-    }
-
-    wrapped = "\n".join(result)
-    return f'<div data-bp-level="goal" data-bp-id="{goal_id}">\n{wrapped}\n</div>', stats
-
-
 # ─── assemble_report (Phase 15) ──────────────────────────────────
 
 def assemble_report(args):
@@ -1232,30 +1114,14 @@ def assemble_report(args):
 
     goals_dir = os.path.join(wd, "goals")
     goal_count = 0
-    wrap_stats = []
     if os.path.isdir(goals_dir):
         for goal_id in sorted(os.listdir(goals_dir)):
             report_path = os.path.join(goals_dir, goal_id, "goal_report.md")
-            if not os.path.isfile(report_path):
-                continue
-            with open(report_path, "r", encoding="utf-8") as f:
-                report_content = f.read()
-
-            progress_path = os.path.join(goals_dir, goal_id, "progress.json")
-            if os.path.isfile(progress_path):
-                with open(progress_path, "r", encoding="utf-8") as f:
-                    progress = json.load(f)
-                kr_map, action_map, excluded_actions = _build_level_number_maps(progress)
-                report_content, stats = _wrap_goal_report(
-                    report_content, goal_id, kr_map, action_map, excluded_actions,
-                )
-                wrap_stats.append({"goalId": goal_id, **stats})
-            else:
-                report_content = f'<div data-bp-level="goal" data-bp-id="{goal_id}">\n{report_content}\n</div>'
-
-            parts.append(report_content)
-            parts.append("\n")
-            goal_count += 1
+            if os.path.isfile(report_path):
+                with open(report_path, "r", encoding="utf-8") as f:
+                    parts.append(f.read())
+                parts.append("\n")
+                goal_count += 1
 
     excluded_path = os.path.join(wd, "excluded_goals.md")
     if os.path.isfile(excluded_path):
@@ -1294,16 +1160,8 @@ def assemble_report(args):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(final_report)
 
-    total_missing = sum(len(s.get("missingKrIds", [])) + len(s.get("missingActionIds", [])) for s in wrap_stats)
-    if total_missing:
-        _log(f"Warning: {total_missing} KR/Action div tag(s) could not be injected — check goal_report.md formatting")
-
     _log(f"Done! Final report assembled: {output_path} ({goal_count} goals, {len(final_report)} chars)")
-    return {
-        "success": True, "outputFile": output_path,
-        "goalCount": goal_count, "charCount": len(final_report),
-        "divTagStats": wrap_stats,
-    }
+    return {"success": True, "outputFile": output_path, "goalCount": goal_count, "charCount": len(final_report)}
 
 
 # ─── save_openclaw_report (Phase 16) ─────────────────────────────

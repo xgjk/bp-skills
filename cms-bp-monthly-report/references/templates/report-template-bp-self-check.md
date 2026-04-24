@@ -157,11 +157,6 @@
 #### 2.2 目标明细
 
 <!-- 仅对参与自查的目标展开明细，被排除的目标不展开 -->
-<!-- assemble_report 脚本会自动为每个目标、KR、举措注入层级标签 div：
-     <div data-bp-level="goal" data-bp-id="{goalId}">  — 包裹整个目标块
-     <div data-bp-level="kr" data-bp-id="{krId}">      — 包裹 KR 及其下所有举措
-     <div data-bp-level="action" data-bp-id="{actionId}"> — 包裹参与自查的举措
-     AI 生成 goal_report.md 时无需关心这些标签，由脚本在拼接阶段自动注入。 -->
 
 ##### [fullLevelNumber]｜[BP目标全称]
 
