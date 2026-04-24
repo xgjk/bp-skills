@@ -33,10 +33,10 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py <action
 
 ## 工作目录结构
 
-所有中间产物统一保存在 `/tmp/openclaw-data/bp/bp_report_{groupId}_{month}/` 下（中间产物 vs 最终拼接素材详见 SKILL.md）：
+所有中间产物统一保存在 `/Users/openclaw-data/bp/bp_report_{groupId}_{month}/` 下（中间产物 vs 最终拼接素材详见 SKILL.md）：
 
 ```
-/tmp/openclaw-data/bp/bp_report_{groupId}_{month}/
+/Users/openclaw-data/bp/bp_report_{groupId}_{month}/
 
   ── 中间产物（仅供后续阶段消费）──
   overview.json                          # collect_monthly_overview

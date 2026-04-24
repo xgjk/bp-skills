@@ -27,7 +27,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 | 7 | `chapter4.md` | 4. 月度汇报入口 |
 | 8 | `evidence_ledger.md` | 附录：证据索引 |
 
-输出：`/tmp/openclaw-data/bp/bp_report_{groupId}_{month}/report_selfcheck.md`
+输出：`/Users/openclaw-data/bp/bp_report_{groupId}_{month}/report_selfcheck.md`
 
 ---
 
@@ -70,7 +70,7 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_openclaw_report \
   --group_id "{groupId}" \
   --month "{YYYY-MM}" \
-  --content_file "/tmp/openclaw-data/bp/bp_report_{groupId}_{month}/report_selfcheck.md"
+  --content_file "/Users/openclaw-data/bp/bp_report_{groupId}_{month}/report_selfcheck.md"
 ```
 
 保存接口会自动将任务标记为成功，**无需再调用 `update_report_status --status 1`**。

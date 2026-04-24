@@ -46,7 +46,7 @@ scripts/
 
 ## 工作目录
 
-每次运行的中间产物统一保存在 `/tmp/openclaw-data/bp/bp_report_{groupId}_{month}/` 目录下，按 groupId + month 隔离。初始化时清理同一维度的历史残留，不影响其他分组或月份。各步骤的具体产出文件见对应的 workflow 文档。
+每次运行的中间产物统一保存在 `/Users/openclaw-data/bp/bp_report_{groupId}_{month}/` 目录下，按 groupId + month 隔离。初始化时清理同一维度的历史残留，不影响其他分组或月份。各步骤的具体产出文件见对应的 workflow 文档。
 
 ## 禁止事项
 
