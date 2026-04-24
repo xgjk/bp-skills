@@ -1462,8 +1462,10 @@ def collect_previous_month_data(args):
         errors.append({"step": "list_monthly_reports", "error": reports_result.get("error")})
 
     # Step 2: fetch report content for each reportRecordId
-    # Full text goes to report pool; JSON only keeps preview + charCount
-    reports_dir = f"/tmp/bp/reports_{args.group_id}"
+    # Full text goes to prev_reports/ subdir inside current month work dir; JSON only keeps preview + charCount
+    report_month = getattr(args, "report_month", None) or getattr(args, "month", "") or ""
+    wd = _work_dir(args.group_id, report_month) if report_month else f"/tmp/bp/bp_report_{args.group_id}_prev"
+    reports_dir = os.path.join(wd, "prev_reports")
     os.makedirs(reports_dir, exist_ok=True)
 
     report_contents = []
@@ -1529,11 +1531,7 @@ def collect_previous_month_data(args):
     if errors:
         output["errors"] = errors
 
-    report_month = getattr(args, "report_month", None) or getattr(args, "month", "") or ""
-    wd = _work_dir(args.group_id, report_month) if report_month else f"/tmp/bp/bp_report_{args.group_id}_prev"
-    os.makedirs(wd, exist_ok=True)
     default_path = os.path.join(wd, "prev_month.json")
-
     output_path = args.output or default_path
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)

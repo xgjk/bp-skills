@@ -18,7 +18,9 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py init_wo
 ```
 /tmp/bp/bp_report_{groupId}_{month}/
   overview.json                          # Step 2a 产出
-  prev_month.json                        # Step 2e 产出
+  prev_month.json                        # Step 2e 产出（上月汇报汇总索引）
+  prev_reports/                          # Step 2e 产出（上月汇报原始内容）
+    prev_{reportId}.json                 #   每份上月汇报的完整内容
   goals/
     {goalId}/
       progress.json                      # Step 2b 产出

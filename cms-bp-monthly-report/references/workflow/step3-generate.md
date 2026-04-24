@@ -15,11 +15,17 @@
 
 **输入**：`goals/{goalId}/judgment_input_{actionId}.md`（Phase 4 脚本产出）
 
-**对黑灯举措**：无需 AI 判断，脚本已标记 `isBlackLamp: true`。AI 只需记录。
+**被排除的举措（`excluded: true`）**：不写入 `action_judgments.json` / `.md`，不判灯、不展开、不记录。被排除举措仅在 3d `goal_report.md` 的"关键成果达成与举措推进"小节末尾用一行汇总说明（如"另有 N 个举措计划期未覆盖本月，不纳入自查。"），**严禁为其生成四灯判断块或任何灯色**。
 
-**对非黑灯举措**：读取判灯材料包，严格按 traffic-light-rules.md 判灯。
+**对黑灯举措（`isBlackLamp: true`）**：无需 AI 判断，脚本已标记。AI 只需在 `action_judgments.json` / `.md` 中记录 `"lamp": "black"`。黑灯的含义是**参与自查但本月无有效汇报证据**，与"被排除"是完全不同的概念。
 
-**输出**：每个目标生成两个文件到 `goals/{goalId}/`：
+**对非黑灯且非排除举措**：读取判灯材料包，严格按 traffic-light-rules.md 判灯。
+
+> ⚠️ **核心区分**：
+> - **排除** = 不参与自查（计划期未覆盖本月 / 草稿状态等），**不出现在 judgments 文件中**
+> - **黑灯** = 参与自查但无有效证据，**必须出现在 judgments 文件中并标记 `"lamp": "black"`**
+
+**输出**：每个目标生成两个文件到 `goals/{goalId}/`（仅包含参与自查的举措）：
 
 1. `action_judgments.json`（结构化，供 Phase 7 聚合脚本消费）：
 ```json
