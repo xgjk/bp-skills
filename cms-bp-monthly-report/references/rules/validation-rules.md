@@ -121,10 +121,10 @@
 
 ## 四、校验失败回退规则
 
-1. 以**目标**为粒度定位失败项，仅回退修正该目标对应的 `goal_report.md`，无需重新生成整篇报告
+1. 以**目标**为粒度定位失败项，修正该目标的 `goal_report_data.json`，然后重新执行 `render_goal_report` 脚本渲染
 2. 修正后重新执行 `assemble_report` 拼接，然后**仅对失败项**重新校验
 3. 同一目标最多重试 **2 次**，若仍不通过则调用 `update_report_status --status 2`，在 `fail_reason` 中写明具体不通过的校验项编号和内容，终止流程
-4. **全局性问题**（如语言清洗未通过、章节缺失）：直接修正对应文件后重新拼接和校验
+4. **全局性问题**（如总体结论内容问题）：修正 `conclusion_data.json` / `overview_data.json` / `header_data.json` 后重新执行对应 render 脚本和 `assemble_report`
 
 ---
 

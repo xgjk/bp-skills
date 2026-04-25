@@ -14,18 +14,18 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
   --month "{YYYY-MM}"
 ```
 
-脚本按固定顺序拼接以下文件：
+脚本按固定顺序拼接以下文件（均由 render 脚本预生成，格式已锁定）：
 
-| 顺序 | 来源文件 | 章节 |
-|------|---------|------|
-| 1 | `report_header.md` | 报告头部 |
-| 2 | `conclusion.md` | 1. 总体自查结论 |
-| 3 | `overview_table.md` | 2.1 目标清单总览 |
-| 4 | 各 `goals/{goalId}/goal_report.md` | 2.2 目标明细（按目标顺序） |
-| 5 | `excluded_goals.md` | 未参与目标说明 |
-| 6 | `chapter3.md` | 3. 年度结果预判评分 |
-| 7 | `chapter4.md` | 4. 月度汇报入口 |
-| 8 | `evidence_ledger.md` | 附录：证据索引 |
+| 顺序 | 来源文件 | 章节 | 生成方式 |
+|------|---------|------|---------|
+| 1 | `report_header.md` | 报告头部 | `render_report_header` 脚本 |
+| 2 | `conclusion.md` | 1. 总体自查结论 | `render_conclusion` 脚本 |
+| 3 | `overview_table.md` | 2.1 目标清单总览 | `render_overview_table` 脚本 |
+| 4 | 各 `goals/{goalId}/goal_report.md` | 2.2 目标明细 | `render_goal_report` 脚本 |
+| 5 | `excluded_goals.md` | 未参与目标说明 | AI 直接输出 |
+| 6 | `chapter3.md` | 3. 年度结果预判评分 | AI 直接输出 |
+| 7 | `chapter4.md` | 4. 月度汇报入口 | AI 直接输出 |
+| 8 | `evidence_ledger.md` | 附录：证据索引 | `build_evidence_ledger` 脚本 |
 
 输出：`/Users/openclaw-data/bp/bp_report_{groupId}_{month}/report_selfcheck.md`
 
@@ -56,8 +56,9 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py assembl
 
 ### 校验失败回退
 
-- **目标级问题**（某个目标的子字段缺失、灯色判断块格式错误等）：仅回退修正该目标的 `goal_report.md`，然后重新执行 `assemble_report` + 重新校验
-- **全局性问题**（章节缺失、语言清洗未通过、总览表列数错误等）：直接修正对应文件后重新拼接和校验
+- **目标级问题**（某个目标的子字段缺失等）：修正该目标的 `goal_report_data.json`，重新执行 `render_goal_report` + `assemble_report` + 重新校验
+- **全局性问题**（总体结论内容问题、总览表内容问题等）：修正对应的 `*_data.json` 文件，重新执行对应 render 脚本 + `assemble_report` + 重新校验
+- 灯色/格式问题由 render 脚本保证，通常不需要回退修正
 - 同一问题最多重试 **2 次**，仍不通过则调用 `update_report_status --status 2`
 
 ---

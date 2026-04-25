@@ -13,6 +13,10 @@ Actions:
     build_judgment_input         Assemble judgment material package for each action
     aggregate_lamp_colors        Aggregate action lamp colors -> goal lamp color
     build_evidence_ledger        Merge all goal evidence ledgers into global ledger
+    render_goal_report           Render goal_report.md from goal_report_data.json + goal_lamp.json
+    render_conclusion            Render conclusion.md from conclusion_data.json + goal_lamp.json files
+    render_overview_table        Render overview_table.md from overview_data.json + goal_lamp.json files
+    render_report_header         Render report_header.md from header_data.json
     assemble_report              Splice final report from intermediate artifacts
     save_openclaw_report         Save report to BP via saveOpenClawReport (API 2.33)
     save_task_monthly_reading    Save goal monthly reading content (API 2.35)
@@ -1070,6 +1074,391 @@ def build_evidence_ledger(args):
     return {"success": True, "outputFile": output_path, "totalReports": len(all_reports)}
 
 
+# ─── Lamp rendering constants ─────────────────────────────────────
+
+LAMP_COLOR_MAP = {
+    "green": {"emoji": "🟢", "css": "#2e7d32"},
+    "yellow": {"emoji": "🟡", "css": "#b26a00"},
+    "red": {"emoji": "🔴", "css": "#c62828"},
+    "black": {"emoji": "⚫", "css": "#212121"},
+}
+
+_PEOPLE_SUGGEST_TEMPLATE = (
+    '<div class="people-suggest">\n'
+    '  <span style="color:{css}; font-weight:700;">人工判断：待确认（请填写：同意 / 不同意）</span>\n'
+    '  <span style="color:{css}; font-weight:700;">若同意：请明确填写"同意"。</span>\n'
+    '  <span style="color:{css}; font-weight:700;">若不同意：请填写理由类别（BP不清晰 / 举证材料不足 / AI判断错误 / 其他）及具体说明。</span>\n'
+    '  <span style="color:{css}; font-weight:700;">整改方案：待补充</span>\n'
+    '  <span style="color:{css}; font-weight:700;">承诺完成时间：待补充</span>\n'
+    '  <span style="color:{css}; font-weight:700;">下周期具体举措：待补充</span>\n'
+    '</div>'
+)
+
+
+def _render_lamp_block(lamp_color, reason):
+    """Render a traffic-light judgment block for the given lamp color and reason text."""
+    info = LAMP_COLOR_MAP.get(lamp_color, LAMP_COLOR_MAP["green"])
+    css = info["css"]
+    emoji = info["emoji"]
+    lines = [f'- <span style="color:{css}; font-weight:700;">四灯判断：{emoji}</span>']
+    if lamp_color == "green":
+        lines.append(f'  <span style="color:{css}; font-weight:700;">判断理由：{reason}</span>')
+    else:
+        lines.append(f'<span style="color:{css}; font-weight:700;">判断理由：{reason}</span>')
+        lines.append(_PEOPLE_SUGGEST_TEMPLATE.format(css=css))
+    return "\n".join(lines)
+
+
+def _render_conclusion_sentence(lamp_color, text):
+    """Render the one-line conclusion sentence with correct lamp emoji and color."""
+    info = LAMP_COLOR_MAP.get(lamp_color, LAMP_COLOR_MAP["green"])
+    return (f'结论一句话：<span style="color:{info["css"]}; font-weight:700;">'
+            f'{info["emoji"]} {_lamp_label(lamp_color)}</span>：{text}')
+
+
+def _lamp_label(lamp_color):
+    labels = {"green": "绿灯", "yellow": "黄灯", "red": "红灯", "black": "黑灯"}
+    return labels.get(lamp_color, "绿灯")
+
+
+# ─── render_goal_report (Phase 10) ───────────────────────────────
+
+def render_goal_report(args):
+    """[Phase 10] Render goal_report.md from goal_report_data.json + goal_lamp.json.
+
+    AI produces structured JSON (content only), this function renders the
+    fixed-template Markdown with correct formatting, lamp blocks, and HTML.
+    """
+    if not args.goal_id:
+        return {"error": "goal_id is required for render_goal_report"}
+    if not args.group_id:
+        return {"error": "group_id is required for render_goal_report"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for render_goal_report"}
+
+    gd = _goal_dir(args.group_id, args.month, args.goal_id)
+    data_path = os.path.join(gd, "goal_report_data.json")
+    lamp_path = os.path.join(gd, "goal_lamp.json")
+
+    if not os.path.isfile(data_path):
+        return {"error": f"goal_report_data.json not found: {data_path}"}
+    if not os.path.isfile(lamp_path):
+        return {"error": f"goal_lamp.json not found: {lamp_path}"}
+
+    with open(data_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    with open(lamp_path, "r", encoding="utf-8") as f:
+        lamp = json.load(f)
+
+    goal_lamp = lamp.get("goalLamp", "green")
+    goal_number = data.get("fullLevelNumber", "")
+    goal_name = data.get("goalName", "")
+
+    lines = [f"##### {goal_number}｜{goal_name}", ""]
+
+    # Section 1: 承诺与实际对照
+    lines.append("**承诺与实际对照**")
+    lines.append("")
+    c = data.get("commitment", {})
+    lines.append(f'承诺口径：{c.get("standard", "")}  ')
+    lines.append(f'本月实际：{c.get("actual", "")}  ')
+    lines.append(f'差异点（若有）：{c.get("gap", "无")}  ')
+    evidence_str = c.get("evidence", "")
+    lines.append(f'证据：{evidence_str}')
+    lines.append("")
+
+    # Section 2: 关键成果达成与举措推进
+    lines.append("**关键成果达成与举措推进**")
+    lines.append("")
+
+    for kr in data.get("keyResults", []):
+        kr_number = kr.get("fullLevelNumber", "")
+        kr_name = kr.get("name", "")
+        lines.append(f"**关键成果 {kr_number}：{kr_name}**")
+        lines.append("")
+        lines.append(f'- **衡量标准：** {kr.get("measureStandard", "")}')
+        lines.append(f'- **本月结果：** {kr.get("monthlyResult", "")}')
+        lines.append(f'- **距离衡量标准：** {kr.get("gapToStandard", "")}')
+        lines.append(f'- **环比上月：** {kr.get("momComparison", "")}')
+        lines.append(f'- **证据：** {kr.get("evidence", "")}')
+        lines.append(f'- **判断理由：** {kr.get("judgmentReason", "")}')
+        lines.append("")
+
+        for action in kr.get("actions", []):
+            if action.get("excluded"):
+                continue
+            a_number = action.get("fullLevelNumber", "")
+            a_name = action.get("name", "")
+            a_lamp = action.get("lamp", "green")
+            lines.append(f"- **└ 支撑举措 {a_number}：{a_name}**")
+            lines.append(f'  - 推进动作摘要：{action.get("summary", "")}')
+            lines.append(f'  - 对结果支撑：【{action.get("support", "中")}】')
+            lines.append(f'  - 当前进度：{action.get("progress", "")}')
+            lines.append(f'  - 证据：{action.get("evidence", "")}')
+            lines.append(_render_lamp_block(a_lamp, action.get('reason', '')))
+            lines.append("")
+
+        excluded_actions = [a for a in kr.get("actions", []) if a.get("excluded")]
+        if excluded_actions:
+            lines.append(f"> 另有 {len(excluded_actions)} 个举措计划期未覆盖本月，不纳入自查。")
+            lines.append("")
+
+    excluded_krs = data.get("excludedKrCount", 0)
+    excluded_action_total = data.get("excludedActionCount", 0)
+    if excluded_krs or excluded_action_total:
+        parts = []
+        if excluded_krs:
+            parts.append(f"{excluded_krs} 个关键成果")
+        if excluded_action_total:
+            parts.append(f"{excluded_action_total} 个举措")
+        lines.append(f'> 另有 {"、".join(parts)}计划期未覆盖本月，不纳入自查。')
+        lines.append("")
+
+    # Section 3: 偏差问题与原因分析
+    lines.append("**偏差问题与原因分析**")
+    lines.append("")
+    deviations = data.get("deviations", [])
+    if not deviations:
+        lines.append("本目标本期无重大偏差。")
+    else:
+        for dev in deviations:
+            lines.append(f'偏差点：{dev.get("point", "")}  ')
+            lines.append(f'影响：{dev.get("impact", "")}  ')
+            lines.append(f'原因假设：{dev.get("hypothesis", "")}  ')
+            lines.append(f'下月纠偏方向：{dev.get("correction", "")}  ')
+            if dev.get("evidence"):
+                lines.append(f'证据：{dev.get("evidence")}')
+            lines.append("")
+    lines.append("")
+
+    # Section 4: 目标级综合灯色结论
+    lines.append("**目标级综合灯色结论**")
+    lines.append("")
+    conclusion_text = data.get("conclusionText", "")
+    lines.append(_render_conclusion_sentence(goal_lamp, conclusion_text))
+    lines.append("")
+    goal_reason = data.get("goalJudgmentReason", "")
+    lines.append(_render_lamp_block(goal_lamp, goal_reason))
+    lines.append("")
+
+    md_content = "\n".join(lines)
+    output_path = os.path.join(gd, "goal_report.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    _log(f"Done! Goal report rendered: {output_path} ({len(md_content)} chars)")
+    return {"success": True, "outputFile": output_path}
+
+
+# ─── render_conclusion (Phase 13) ────────────────────────────────
+
+def render_conclusion(args):
+    """[Phase 13] Render conclusion.md from conclusion_data.json + all goal_lamp.json files.
+
+    AI produces JSON with summary texts; this function renders the fixed-template
+    conclusion Markdown with accurate lamp statistics computed from goal_lamp.json files.
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for render_conclusion"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for render_conclusion"}
+
+    wd = _work_dir(args.group_id, args.month)
+    data_path = os.path.join(wd, "conclusion_data.json")
+    if not os.path.isfile(data_path):
+        return {"error": f"conclusion_data.json not found: {data_path}"}
+
+    with open(data_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    overview_path = os.path.join(wd, "overview.json")
+    if not os.path.isfile(overview_path):
+        return {"error": f"overview.json not found: {overview_path}"}
+    with open(overview_path, "r", encoding="utf-8") as f:
+        overview = json.load(f)
+
+    goals_dir = os.path.join(wd, "goals")
+    lamp_counts = {"green": 0, "yellow": 0, "red": 0, "black": 0}
+    participating = 0
+    excluded_count = 0
+
+    for goal in overview.get("goals", []):
+        gid = str(goal.get("goalId", ""))
+        progress_path = os.path.join(goals_dir, gid, "progress.json")
+        if os.path.isfile(progress_path):
+            with open(progress_path, "r", encoding="utf-8") as f:
+                prog = json.load(f)
+            if prog.get("excluded"):
+                excluded_count += 1
+                continue
+
+        lamp_file = os.path.join(goals_dir, gid, "goal_lamp.json")
+        if os.path.isfile(lamp_file):
+            with open(lamp_file, "r", encoding="utf-8") as f:
+                gl = json.load(f)
+            color = gl.get("goalLamp", "green")
+            lamp_counts[color] = lamp_counts.get(color, 0) + 1
+            participating += 1
+        else:
+            excluded_count += 1
+
+    lines = [
+        "#### 1.1 结论",
+        "",
+        f'一句话优势：{data.get("strength", "")}  ',
+        f'一句话短板：{data.get("weakness", "")}',
+        "",
+        "#### 1.2 灯色分布概览",
+        "",
+        "```text",
+        f"参与自查目标 {participating} 个：",
+        f"  🟢 目标数：{lamp_counts['green']}",
+        f"  🟡 目标数：{lamp_counts['yellow']}",
+        f"  🔴 目标数：{lamp_counts['red']}",
+        f"  ⚫ 目标数：{lamp_counts['black']}",
+        "未参与自查：",
+        f"  ★ 未启动：{excluded_count} 个目标",
+        "```",
+        "",
+        "#### 1.3 本月最关键偏差点",
+        "",
+    ]
+
+    deviations = data.get("topDeviations", [])
+    if not deviations:
+        lines.append("本月无重大偏差点。")
+    else:
+        for i, dev in enumerate(deviations, 1):
+            lines.append(f'{i}) 偏差点：{dev.get("point", "")}（对应目标：{dev.get("goalNumber", "")}）  ')
+            lines.append(f'影响：{dev.get("impact", "")}  ')
+            lines.append(f'原因假设：{dev.get("hypothesis", "")}  ')
+            lines.append(f'下月纠偏方向：{dev.get("correction", "")}')
+            lines.append("")
+
+    md_content = "\n".join(lines)
+    output_path = os.path.join(wd, "conclusion.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    _log(f"Done! Conclusion rendered: {output_path}")
+    return {"success": True, "outputFile": output_path,
+            "lampCounts": lamp_counts, "participating": participating, "excluded": excluded_count}
+
+
+# ─── render_overview_table (Phase 12) ────────────────────────────
+
+def render_overview_table(args):
+    """[Phase 12] Render overview_table.md from overview_data.json + goal_lamp.json files.
+
+    AI produces JSON with per-goal summary texts; this function renders
+    the 7-column overview table with correct lamp emojis from goal_lamp.json.
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for render_overview_table"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for render_overview_table"}
+
+    wd = _work_dir(args.group_id, args.month)
+    data_path = os.path.join(wd, "overview_data.json")
+    if not os.path.isfile(data_path):
+        return {"error": f"overview_data.json not found: {data_path}"}
+
+    with open(data_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    goals_dir = os.path.join(wd, "goals")
+
+    lines = [
+        "| 目标编号 | BP目标 | 本月承诺口径 | 本月实际 | 证据引用 | 目标灯色 | 结论一句话 |",
+        "|---------|--------|-------------|---------|----------|----------|------------|",
+    ]
+
+    for goal in data.get("goals", []):
+        gid = str(goal.get("goalId", ""))
+        number = goal.get("fullLevelNumber", "")
+        name = goal.get("name", "")
+        is_excluded = goal.get("excluded", False)
+
+        if is_excluded:
+            reason = goal.get("excludeReason", "")
+            lines.append(
+                f'| {number} | {name} | — | — | '
+                f'| <span style="color:#2e7d32; font-weight:700;">★</span> '
+                f'| 未启动（{reason}） |'
+            )
+        else:
+            lamp_file = os.path.join(goals_dir, gid, "goal_lamp.json")
+            lamp_color = "green"
+            if os.path.isfile(lamp_file):
+                with open(lamp_file, "r", encoding="utf-8") as f:
+                    gl = json.load(f)
+                lamp_color = gl.get("goalLamp", "green")
+            info = LAMP_COLOR_MAP.get(lamp_color, LAMP_COLOR_MAP["green"])
+            lamp_span = f'<span style="color:{info["css"]}; font-weight:700;">{info["emoji"]}</span>'
+
+            lines.append(
+                f'| {number} | {name} '
+                f'| {goal.get("standard", "—")} '
+                f'| {goal.get("actual", "—")} '
+                f'| {goal.get("evidence", "")} '
+                f'| {lamp_span} '
+                f'| {goal.get("conclusion", "")} |'
+            )
+
+    md_content = "\n".join(lines)
+    output_path = os.path.join(wd, "overview_table.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    _log(f"Done! Overview table rendered: {output_path}")
+    return {"success": True, "outputFile": output_path}
+
+
+# ─── render_report_header ────────────────────────────────────────
+
+def render_report_header(args):
+    """Render report_header.md from header_data.json.
+
+    Produces the exact header format: title line + blockquote metadata.
+    """
+    if not args.group_id:
+        return {"error": "group_id is required for render_report_header"}
+    if not args.month:
+        return {"error": "month (YYYY-MM) is required for render_report_header"}
+
+    wd = _work_dir(args.group_id, args.month)
+    data_path = os.path.join(wd, "header_data.json")
+    if not os.path.isfile(data_path):
+        return {"error": f"header_data.json not found: {data_path}"}
+
+    with open(data_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    employee_name = data.get("employeeName", "")
+    year = int(args.month[:4])
+    month = int(args.month[5:7])
+    period_name = data.get("periodName", "")
+    baseline = data.get("baseline", "首月，无基线")
+
+    lines = [
+        f"# {employee_name} {year}年{month}月 BP自查报告",
+        "",
+        f"> 周期：`{period_name}`",
+        f"> 节点：`{employee_name}`",
+        f"> 基线：{baseline}",
+        "> 证据说明：本报告中 R 编号（如 R0101）为当月证据引用，RP 编号（如 RP01）为上月参考引用，点击均可直接查看对应汇报详情。",
+        "> 解释口径：灯色按目标级综合判断。",
+    ]
+
+    md_content = "\n".join(lines)
+    output_path = os.path.join(wd, "report_header.md")
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    _log(f"Done! Report header rendered: {output_path}")
+    return {"success": True, "outputFile": output_path}
+
+
 # ─── assemble_report (Phase 15) ──────────────────────────────────
 
 def assemble_report(args):
@@ -1093,13 +1482,6 @@ def assemble_report(args):
         return fallback
 
     def _strip_leading_heading(text, expected_heading_text):
-        """Strip duplicate heading lines from the beginning of text if AI included them.
-
-        Scans the first 5 non-empty lines.  Removes any markdown heading line
-        (# to ######) whose text matches ``expected_heading_text``
-        (case-insensitive, ignores leading numbering like '2.1 ').
-        Also removes blank lines that precede the first content line.
-        """
         if not text:
             return text
         lines = text.split("\n")
@@ -1124,141 +1506,11 @@ def assemble_report(args):
                 if normalized == expected:
                     continue
             cleaned_lines.append(line)
-        result = "\n".join(cleaned_lines).lstrip("\n")
-        return result
-
-    LAMP_COLOR_MAP = {
-        "green": {"emoji": "🟢", "css": "#2e7d32"},
-        "yellow": {"emoji": "🟡", "css": "#b26a00"},
-        "red": {"emoji": "🔴", "css": "#c62828"},
-        "black": {"emoji": "⚫", "css": "#212121"},
-    }
-
-    PEOPLE_SUGGEST_BLOCK = (
-        '<div class="people-suggest">\n'
-        '  <span style="color:{css}; font-weight:700;">人工判断：待确认（请填写：同意 / 不同意）</span>\n'
-        '  <span style="color:{css}; font-weight:700;">若同意：请明确填写"同意"。</span>\n'
-        '  <span style="color:{css}; font-weight:700;">若不同意：请填写理由类别（BP不清晰 / 举证材料不足 / AI判断错误 / 其他）及具体说明。</span>\n'
-        '  <span style="color:{css}; font-weight:700;">整改方案：待补充</span>\n'
-        '  <span style="color:{css}; font-weight:700;">承诺完成时间：待补充</span>\n'
-        '  <span style="color:{css}; font-weight:700;">下周期具体举措：待补充</span>\n'
-        '</div>'
-    )
-
-    def _fix_goal_lamp_consistency(report_text, goals_dir):
-        """Validate and fix goal-level lamp colors in assembled report.
-
-        For each goal with a goal_lamp.json, checks that the goal-level
-        '四灯判断块' uses the correct lamp color. If inconsistent, replaces
-        the wrong lamp block with the correct one.
-        """
-        if not os.path.isdir(goals_dir):
-            return report_text
-
-        fixes_applied = 0
-        for goal_id in sorted(os.listdir(goals_dir)):
-            lamp_path = os.path.join(goals_dir, goal_id, "goal_lamp.json")
-            if not os.path.isfile(lamp_path):
-                continue
-            with open(lamp_path, "r", encoding="utf-8") as f:
-                lamp_data = json.load(f)
-            expected_lamp = lamp_data.get("goalLamp", "green")
-            expected_emoji = lamp_data.get("goalLampEmoji", "🟢")
-            expected_info = LAMP_COLOR_MAP.get(expected_lamp, LAMP_COLOR_MAP["green"])
-
-            goal_report_path = os.path.join(goals_dir, goal_id, "goal_report.md")
-            if not os.path.isfile(goal_report_path):
-                continue
-            with open(goal_report_path, "r", encoding="utf-8") as f:
-                goal_report = f.read()
-
-            conclusion_marker = "**目标级综合灯色结论**"
-            marker_pos = goal_report.find(conclusion_marker)
-            if marker_pos < 0:
-                continue
-
-            conclusion_section = goal_report[marker_pos:]
-
-            lamp_match = re.search(
-                r'<span style="color:#([0-9a-fA-F]{6});\s*font-weight:700;">四灯判断：(.)</span>',
-                conclusion_section,
-            )
-            if not lamp_match:
-                continue
-
-            found_css = lamp_match.group(1)
-            found_emoji = lamp_match.group(2)
-
-            if found_emoji == expected_emoji and found_css.lower() == expected_info["css"][1:].lower():
-                continue
-
-            _log(f"Lamp mismatch for goal {goal_id}: found {found_emoji} (#{found_css}), "
-                 f"expected {expected_emoji} ({expected_info['css']}). Auto-correcting...")
-
-            old_lamp_line = lamp_match.group(0)
-            new_lamp_line = (f'<span style="color:{expected_info["css"]}; font-weight:700;">'
-                           f'四灯判断：{expected_emoji}</span>')
-            goal_report = goal_report.replace(old_lamp_line, new_lamp_line, 1)
-
-            old_css = f"#{found_css}"
-            new_css = expected_info["css"]
-            section_after = goal_report[marker_pos:]
-            section_after = section_after.replace(
-                f'style="color:{old_css}; font-weight:700;"',
-                f'style="color:{new_css}; font-weight:700;"',
-            )
-            goal_report = goal_report[:marker_pos] + section_after
-
-            if expected_lamp != "green" and '<div class="people-suggest">' not in conclusion_section:
-                _log(f"  Adding missing people-suggest block for goal {goal_id}")
-                insert_block = "\n" + PEOPLE_SUGGEST_BLOCK.format(css=new_css)
-                last_span_end = goal_report.rfind("</span>", marker_pos)
-                if last_span_end > 0:
-                    goal_report = goal_report[:last_span_end + 7] + insert_block + goal_report[last_span_end + 7:]
-
-            if expected_lamp == "green" and '<div class="people-suggest">' in conclusion_section:
-                ps_start = goal_report.find('<div class="people-suggest">', marker_pos)
-                ps_end = goal_report.find('</div>', ps_start)
-                if ps_start > 0 and ps_end > 0:
-                    goal_report = goal_report[:ps_start] + goal_report[ps_end + 6:]
-
-            with open(goal_report_path, "w", encoding="utf-8") as f:
-                f.write(goal_report)
-            fixes_applied += 1
-
-        if fixes_applied:
-            _log(f"Lamp consistency: {fixes_applied} goal(s) auto-corrected")
-
-        return fixes_applied
-
-    def _strip_header_extra_headings(header_text):
-        """Remove any heading lines from report_header.md beyond the title and blockquote."""
-        if not header_text:
-            return header_text
-        lines = header_text.split("\n")
-        cleaned = []
-        past_blockquote = False
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("> "):
-                cleaned.append(line)
-                past_blockquote = True
-                continue
-            if past_blockquote and stripped.startswith(">"):
-                cleaned.append(line)
-                continue
-            if past_blockquote and re.match(r'^#{1,6}\s+', stripped):
-                _log(f"Stripping extra heading from report_header.md: {stripped}")
-                continue
-            cleaned.append(line)
-            if stripped.startswith("> "):
-                past_blockquote = True
-        return "\n".join(cleaned)
+        return "\n".join(cleaned_lines).lstrip("\n")
 
     parts = []
 
     header = _read_if_exists(os.path.join(wd, "report_header.md"), "# BP自查报告\n")
-    header = _strip_header_extra_headings(header)
     parts.append(header)
     parts.append("\n---\n")
 
@@ -1282,9 +1534,6 @@ def assemble_report(args):
     parts.append("#### 2.2 目标明细\n")
 
     goals_dir = os.path.join(wd, "goals")
-
-    _fix_goal_lamp_consistency("", goals_dir)
-
     goal_count = 0
     if os.path.isdir(goals_dir):
         for goal_id in sorted(os.listdir(goals_dir)):
@@ -1325,7 +1574,6 @@ def assemble_report(args):
         parts.append(ledger)
 
     final_report = "\n".join(parts)
-
     final_report = _strip_residual_html(final_report)
 
     output_path = args.output or os.path.join(wd, "report_selfcheck.md")
@@ -1579,6 +1827,10 @@ ACTION_MAP = {
     "build_judgment_input": build_judgment_input,
     "aggregate_lamp_colors": aggregate_lamp_colors,
     "build_evidence_ledger": build_evidence_ledger,
+    "render_goal_report": render_goal_report,
+    "render_conclusion": render_conclusion,
+    "render_overview_table": render_overview_table,
+    "render_report_header": render_report_header,
     "assemble_report": assemble_report,
     "save_openclaw_report": save_openclaw_report,
     "save_task_monthly_reading": save_task_monthly_reading,

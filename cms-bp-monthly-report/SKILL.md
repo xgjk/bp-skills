@@ -39,10 +39,10 @@ scripts/
 
 - **报告定位**：以"每个 BP 目标"为主线底座的自查报告，串起承诺对照→结果→举措→偏差
 - **层次化分析**：举措级判灯 → KR 级差距分析 → 目标级总结报告 → 全目标拉通总结 → 拼接月报
-- **脚本 vs AI 分工**：排除判断、黑灯判断、R 编号分配、灯色聚合、报告拼接由**脚本**完成；红/黄/绿灯判断、KR 差距分析、目标总结、总体结论由**AI**完成
+- **脚本 vs AI 分工**：排除判断、黑灯判断、R 编号分配、灯色聚合、**Markdown 格式渲染**、报告拼接由**脚本**完成；红/黄/绿灯判断、KR 差距分析、目标总结内容、总体结论内容由**AI**完成（AI 产出结构化 JSON，脚本负责渲染为 Markdown）
 - **灯色层级**：目标级排除判断（★未启动 / 参与）→ 举措级独立判灯 → 目标级从举措聚合（红→黄→黑→绿）→ KR 级不判灯
 - **证据编号**：当月 `R{MM}{序号}`（如 `R0301`），上月 `RP{序号}`（如 `RP01`），严禁混用
-- **报告是拼接的**：最终月报由脚本按固定模板从各中间产物文件拼接而成，不是一次性 AI 生成
+- **报告是脚本渲染+拼接的**：AI 产出结构化 JSON 数据文件，脚本负责渲染为 Markdown（含所有 HTML 灯色标签、四灯判断块、people-suggest 区域），最终由 `assemble_report` 脚本拼接为完整报告。AI 不直接写 Markdown 格式化内容
 
 ## 工作目录
 
@@ -53,7 +53,7 @@ scripts/
 1. 禁止一步生成整篇报告，必须走 Step 1 → 1.5 → 2 → 3 → 4 的分步流程
 2. 禁止对任何 ID 参数做数值转换（parseInt/Number），保持字符串原样
 3. **禁止在校验通过前调用保存接口** — 4b 校验为最高优先级，必须逐条执行并输出校验报告
-4. **禁止跳过或简化校验流程** — 不得用"已大致检查"替代逐条校验，必须 16 项全部给出明确结论
+4. **禁止跳过或简化校验流程** — 不得用"已大致检查"替代逐条校验，必须 19 项全部给出明确结论
 5. 禁止伪造 R 编号、RP 编号、汇报链接或任何数据
 6. 禁止跳过参考文档加载直接执行 Step 3
 7. 禁止在最终报告中输出内部流程步骤编号（Step 3a/3b 等）或模板括号注释
@@ -133,12 +133,12 @@ scripts/
 1. **3a**: 举措级判灯（AI 判红/黄/绿，脚本已标黑灯）→ `action_judgments.json/md`
 2. **3b**: KR 级差距分析（AI）→ `kr_analysis.md`
 3. **3c**: 目标级灯色聚合（`aggregate_lamp_colors` 脚本）→ `goal_lamp.json`
-4. **3d**: 生成目标总结报告（AI）→ `goal_report.md`
+4. **3d**: AI 产出 `goal_report_data.json` → `render_goal_report` 脚本渲染 → `goal_report.md`
 5. **3d+**: 保存目标月报阅读内容（`save_task_monthly_reading` 脚本）→ 参与自查目标保存 `goal_report.md` 内容，未参与目标在 3e 后保存说明（失败不阻塞）
 6. **3e**: 生成未参与目标说明 → `excluded_goals.md`
-7. **3f**: 生成总览表 → `overview_table.md`
-8. **3g**: 生成总体结论 → `conclusion.md`
-9. **3h**: 生成报告头部 + 链接章节 → `report_header.md` + `chapter3.md` + `chapter4.md`
+7. **3f**: AI 产出 `overview_data.json` → `render_overview_table` 脚本渲染 → `overview_table.md`
+8. **3g**: AI 产出 `conclusion_data.json` → `render_conclusion` 脚本渲染 → `conclusion.md`
+9. **3h**: AI 产出 `header_data.json` → `render_report_header` 脚本渲染 → `report_header.md` + AI 写 `chapter3.md` + `chapter4.md`
 10. **3i**: 全局证据台账合并（`build_evidence_ledger` 脚本）→ `evidence_ledger.md`
 
 **完成后输出**：`Step 3 完成 — 报告各章节已生成，待拼接`

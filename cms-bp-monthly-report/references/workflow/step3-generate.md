@@ -77,59 +77,108 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 
 ---
 
-## 3d: 生成目标总结报告（阶段 10）
+## 3d: 生成目标总结数据（阶段 10）
 
-**这是核心章节产出。** 每个参与自查的目标生成一份自包含的目标总结报告。
+**这是核心章节产出。** 每个参与自查的目标生成一份**结构化 JSON 数据文件**，由渲染脚本转换为 Markdown。
+
+> **⚠️ 架构变更**：AI 只负责产出内容数据（JSON），不再直接写 Markdown。
+> 所有标题、灯色 HTML span、四灯判断块格式、people-suggest 区域均由 `render_goal_report` 脚本自动渲染。
+> **AI 严禁在 JSON 值中包含任何 HTML 标签或 Markdown 标题。**
 
 **输入**（全部在同一目标目录下）：
 - `progress.json` — BP 结构和证据 Markdown
 - `goal_evidence.md` — 证据台账（R 编号索引）
-- `action_judgments.md` — 举措判灯结果
+- `action_judgments.json` — 举措判灯结果（含每个举措的 lamp 颜色）
 - `kr_analysis.md` — KR 差距分析
-- `goal_lamp.json` — 目标级灯色
+- `goal_lamp.json` — 目标级灯色（脚本聚合产出）
 
-**输出**：`goals/{goalId}/goal_report.md`
+**AI 输出**：`goals/{goalId}/goal_report_data.json`
 
-**⚠️ 灯色锚定规则（MANDATORY — 严禁违反）**：
-1. 生成"目标级综合灯色结论"前，**必须先读取** `goal_lamp.json` 的 `goalLamp` 和 `goalLampEmoji` 字段
-2. "结论一句话"的灯色 span **必须使用** `goalLampEmoji` 的值，严禁 AI 自行判断替代
-3. "四灯判断块"的灯色 **必须使用** `goalLamp` 的值来选择对应模板（green→绿灯2行 / yellow→黄灯8行 / red→红灯8行 / black→黑灯8行），**严禁 AI 二次判断覆盖脚本聚合结果**
-4. "结论一句话"灯色与"四灯判断块"灯色 **必须完全一致**，均来自 `goal_lamp.json`
-5. 若 AI 对脚本聚合结果有异议，可在判断理由中注明"AI 建议为 X 灯，脚本聚合为 Y 灯，以脚本为准"，但最终灯色仍以脚本为准
-
-**严格按模板结构**（见 report-template-bp-self-check.md 2.2 节），包含 4 个必需子章节：
-
-```markdown
-##### {fullLevelNumber}｜{目标全称}
-
-**承诺与实际对照**
-承诺口径：...
-本月实际：...
-差异点：...
-证据：[R{编号}](huibao://view?id={reportId})
-
-**关键成果达成与举措推进**
-（组装 kr_analysis.md 和 action_judgments.md 的内容）
-
-**偏差问题与原因分析**
-（若无偏差写"本目标本期无重大偏差"）
-
-**目标级综合灯色结论**
-结论一句话：[从 goal_lamp.json 读取灯色] ...
-（嵌入四灯判断块，灯色必须与 goal_lamp.json 的 goalLamp 一致）
+```json
+{
+  "fullLevelNumber": "P12717-2",
+  "goalName": "目标全称（纯文本）",
+  "commitment": {
+    "standard": "承诺口径文本",
+    "actual": "本月实际达成情况文本",
+    "gap": "差异点描述，若无差异写'无'",
+    "evidence": "[R0201](huibao://view?id=xxx)"
+  },
+  "keyResults": [
+    {
+      "fullLevelNumber": "P12717-2.8",
+      "name": "KR全称（纯文本）",
+      "measureStandard": "衡量标准文本",
+      "monthlyResult": "本月结果文本",
+      "gapToStandard": "距离衡量标准的差距描述",
+      "momComparison": "环比上月描述",
+      "evidence": "[R0201](huibao://view?id=xxx)",
+      "judgmentReason": "对该KR的判断理由文本",
+      "actions": [
+        {
+          "fullLevelNumber": "P12717-2.8.5",
+          "name": "举措全称（纯文本）",
+          "excluded": false,
+          "lamp": "green",
+          "summary": "推进动作摘要 1-3 句",
+          "support": "强",
+          "progress": "完成度或里程碑阶段 — 一句话说明",
+          "evidence": "[R0201](huibao://view?id=xxx)",
+          "reason": "判断理由文本（纯文本，不含HTML）"
+        }
+      ]
+    }
+  ],
+  "excludedKrCount": 0,
+  "excludedActionCount": 0,
+  "deviations": [
+    {
+      "point": "偏差点描述",
+      "impact": "影响描述",
+      "hypothesis": "原因假设",
+      "correction": "下月纠偏方向",
+      "evidence": "[R0301](huibao://view?id=xxx)"
+    }
+  ],
+  "conclusionText": "关键依据+关键短板/优势（纯文本，不含灯色emoji/HTML）",
+  "goalJudgmentReason": "目标级判断理由文本（纯文本，不含HTML）"
+}
 ```
+
+**字段规则**：
+1. `lamp` 字段取值：`green` / `yellow` / `red` / `black`，**必须与 `action_judgments.json` 中的对应举措灯色一致**
+2. `deviations` 数组：若无偏差则为空数组 `[]`
+3. 所有文本字段为**纯文本**，仅 `evidence` 字段允许 Markdown 链接格式 `[R编号](huibao://view?id=xxx)`
+4. `excluded` 为 `true` 的举措不需要填写 lamp/summary/support/progress/evidence/reason 字段
+
+**脚本渲染**：AI 写完 JSON 后，立即执行渲染脚本：
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py render_goal_report \
+  --goal_id "{goalId}" \
+  --group_id "{groupId}" \
+  --month "{YYYY-MM}"
+```
+
+脚本会读取 `goal_report_data.json` + `goal_lamp.json`，自动渲染：
+- 所有 Markdown 标题（`#####`）
+- 四灯判断块 HTML（灯色从 `goal_lamp.json` 读取）
+- `people-suggest` 人工确认区域（非绿灯自动添加，绿灯不添加）
+- 结论一句话的灯色 span HTML
+
+**输出**：`goals/{goalId}/goal_report.md`（由脚本生成，AI 不直接写此文件）
 
 ---
 
 ## 3d+: 保存目标月报阅读内容
 
-**在 3d 完成后立即执行。** 将该目标的月报阅读内容保存到系统（API 2.35 saveTaskMonthlyReading）。
+**在 3d 的 `render_goal_report` 脚本执行完成后立即执行。** 将该目标的月报阅读内容保存到系统（API 2.35 saveTaskMonthlyReading）。
 
 **保存失败不阻塞后续流程**，仅记录警告日志，继续执行 3e 及后续步骤。
 
 ### 参与自查的目标
 
-3d 生成 `goal_report.md` 后，立即读取并保存：
+`render_goal_report` 生成 `goal_report.md` 后，立即读取并保存：
 
 ```bash
 python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_task_monthly_reading \
@@ -163,87 +212,134 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_ta
 
 ---
 
-## 3f: 生成总览表（阶段 12）
+## 3f: 生成总览表数据（阶段 12）
 
-读取所有目标的 `goal_lamp.json` + `goal_report.md` + 排除状态，生成 `overview_table.md`。
+> **⚠️ 架构变更**：AI 只负责产出结构化 JSON 数据，由 `render_overview_table` 脚本渲染为 Markdown 表格。
+> 灯色 HTML span、★ 标记等格式均由脚本自动生成，AI 不写任何 HTML。
 
-**注意：`overview_table.md` 不包含 `#### 2.1 目标清单总览` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），直接从表格开始输出。
+读取所有目标的 `goal_report_data.json` + `progress.json`，生成 `overview_data.json`。
 
-**必须 7 列**：目标编号 / BP目标 / 本月承诺口径 / 本月实际 / 证据引用 / 目标灯色 / 结论一句话。
+**AI 输出**：`overview_data.json`（写入工作目录根）
 
-**⚠️ 灯色数据源规则（MANDATORY）**：
-1. 总览表中每个参与自查目标的"目标灯色"列，**必须从该目标的 `goal_lamp.json` 的 `goalLampEmoji` 字段读取**，不得由 AI 自行判断
-2. 被排除目标（★未启动）的灯色列使用 `★` 标记，不读取 `goal_lamp.json`
+```json
+{
+  "goals": [
+    {
+      "goalId": "2030893444855308290",
+      "fullLevelNumber": "P12717-2",
+      "name": "目标全称（纯文本）",
+      "excluded": false,
+      "standard": "本月承诺口径（纯文本）",
+      "actual": "本月实际达成情况（纯文本）",
+      "evidence": "[R0201](huibao://view?id=xxx)-[R0208](huibao://view?id=xxx)",
+      "conclusion": "结论一句话（纯文本，不含灯色）"
+    },
+    {
+      "goalId": "2030893444855308295",
+      "fullLevelNumber": "P12717-18",
+      "name": "投前弹性窗口管理",
+      "excluded": true,
+      "excludeReason": "计划2026-07-01起"
+    }
+  ]
+}
+```
 
-**目标编号必须使用系统 `fullLevelNumber`**（如 `P1001-7`），**严禁使用自编流水号**（如 001、002）。数据源优先级：先读 `overview.json` 的 `goals[].fullLevelNumber`（Step 2b 执行后已自动回填），若为空则从 `goals/{goalId}/progress.json` 的 `goalDetail.fullLevelNumber` 字段读取。
+**字段规则**：
+1. 参与自查的目标必须包含：`standard`、`actual`、`evidence`、`conclusion`
+2. 被排除目标只需：`goalId`、`fullLevelNumber`、`name`、`excluded: true`、`excludeReason`
+3. 所有文本字段为**纯文本**，仅 `evidence` 字段允许 Markdown 链接格式
+4. **目标编号必须使用系统 `fullLevelNumber`**（如 `P1001-7`），**严禁使用自编流水号**
 
-所有目标均列入（含★未启动的目标）。
+**脚本渲染**：AI 写完 JSON 后，立即执行：
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py render_overview_table \
+  --group_id "{groupId}" \
+  --month "{YYYY-MM}"
+```
+
+脚本会读取 `overview_data.json` + 各目标的 `goal_lamp.json`，自动渲染 7 列表格，灯色从 `goal_lamp.json` 精确读取。
+
+**输出**：`overview_table.md`（由脚本生成）
 
 ---
 
-## 3g: 生成总体结论（阶段 13）
+## 3g: 生成总体结论数据（阶段 13）
 
-读取所有目标的 `goal_report.md` + `goal_lamp.json`，从全局视角生成 `conclusion.md`。
+> **⚠️ 架构变更**：AI 只负责产出内容数据（JSON），由 `render_conclusion` 脚本渲染为 Markdown。
+> 灯色分布统计由脚本自动从 `goal_lamp.json` 文件精确计算，AI 不手动统计灯色数量。
 
-**注意：`conclusion.md` 不包含 `### 1. 总体自查结论` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），直接从 `#### 1.1` 开始输出。
+读取所有目标的 `goal_report_data.json`，从全局视角生成 `conclusion_data.json`。
 
-**⚠️ 灯色统计数据源规则（MANDATORY）**：
-1. 1.2 灯色分布概览中的统计数字，**必须遍历所有参与自查目标的 `goal_lamp.json` 文件**，读取 `goalLamp` 字段逐个计数，**不得凭记忆、推断或 AI 自行判断填写**
-2. 具体操作：逐个读取 `goals/{goalId}/goal_lamp.json`，统计 `goalLamp` 为 `green`/`yellow`/`red`/`black` 的数量，被排除目标不计入四色灯统计，仅计入"★未启动"
+**AI 输出**：`conclusion_data.json`（写入工作目录根）
 
-**输出结构必须严格遵守以下格式：**
-
-```markdown
-#### 1.1 结论
-
-一句话优势：[例如"关键目标兑现率高且无明显短板"]  
-一句话短板：[例如"个别关键目标存在偏差，需在下月通过 X 纠偏"]
-
-#### 1.2 灯色分布概览
-
-```text
-参与自查目标 [M] 个：
-  🟢 目标数：[N]
-  🟡 目标数：[N]
-  🔴 目标数：[N]
-  ⚫ 目标数：[N]
-未参与自查：
-  ★ 未启动：[N] 个目标
+```json
+{
+  "strength": "关键目标兑现率高且无明显短板（纯文本）",
+  "weakness": "个别关键目标存在偏差，需在下月通过 X 纠偏（纯文本）",
+  "topDeviations": [
+    {
+      "point": "偏差点一句话描述",
+      "goalNumber": "P12717-15",
+      "impact": "对 BP/KR/节点的影响",
+      "hypothesis": "最可能原因 1-2 条",
+      "correction": "下月纠偏方向一句话"
+    }
+  ]
+}
 ```
 
-#### 1.3 本月最关键偏差点
+**字段规则**：
+1. `strength` 和 `weakness` 为**纯文本**，分别对应"一句话优势"和"一句话短板"
+2. `topDeviations` 最多 3 条；若无偏差则为空数组 `[]`
+3. 所有文本字段为**纯文本**，不含 HTML 或 Markdown 标题
+4. **灯色分布统计不由 AI 填写**，脚本会自动遍历所有 `goal_lamp.json` 精确计算
 
-1) 偏差点：[一句话描述]（对应目标：[fullLevelNumber]）  
-影响：[对 BP/KR/节点的影响]  
-原因假设：[最可能原因 1-2 条]  
-下月纠偏方向：[一句话]
+**脚本渲染**：AI 写完 JSON 后，立即执行：
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py render_conclusion \
+  --group_id "{groupId}" \
+  --month "{YYYY-MM}"
 ```
 
-**强制规则：**
+脚本会渲染完整的 `conclusion.md`，包含：
+- `#### 1.1 结论`（从 JSON 读取 strength/weakness）
+- `#### 1.2 灯色分布概览`（从 `goal_lamp.json` 文件精确统计，code block 格式）
+- `#### 1.3 本月最关键偏差点`（从 JSON 读取 topDeviations）
 
-1. **1.1 必须输出两个带标签的独立行**：`一句话优势：` 和 `一句话短板：`，不可合并为一段话。
-2. **1.2 必须使用 fenced code block**（` ```text ``` `），分行展示四色灯和未启动统计。
-3. **1.3 若无偏差**，仍需输出本节，内容为"本月无重大偏差点。"；**若有偏差**（最多 3 条），每条必须包含：偏差点、影响、原因假设、下月纠偏方向 四个字段，并标注对应目标编号。
+**输出**：`conclusion.md`（由脚本生成）
 
 ---
 
 ## 3h: 生成报告头部 + 链接章节 + 评分附录（阶段 9/14）
 
-**报告头部** `report_header.md`：
-```markdown
-# {员工姓名} {YYYY年M月} BP自查报告
+> **⚠️ 报告头部也改为脚本渲染**，AI 只需产出 `header_data.json`。
 
-> 周期：`{BP周期名称}`
-> 节点：`{员工姓名}`
-> 基线：已参考上月 [RP01](...), [RP02](...) 及上月评价（详见附录 A.3）
-> 证据说明：...
-> 解释口径：...
+**AI 输出**：`header_data.json`（写入工作目录根）
+
+```json
+{
+  "employeeName": "姜葳",
+  "periodName": "2026年BP全年目标",
+  "baseline": "已参考上月 [RP01](huibao://view?id=xxx), [RP02](huibao://view?id=xxx) 及上月评价（详见附录 A.3）"
+}
 ```
 
-**⚠️ report_header.md 内容边界规则（MANDATORY）**：
-- `report_header.md` **仅包含**上方代码块中的内容（报告标题 `#` 行 + 引用块 `>` 行），**禁止包含任何其他章节标题行**
-- 禁止在 header 中写入 `## 目标明细`、`### 1. 总体自查结论`、`### 2. 目标级自查明细` 等章节标题
-- 拼接脚本不会对 `report_header.md` 执行标题去重，AI 多写的任何标题都会原样出现在最终报告中导致结构重复
+**字段规则**：
+1. `baseline`：若有上月数据，格式为 `已参考上月 [RP01](...), [RP02](...) 及上月评价（详见附录 A.3）`；若首月则写 `首月，无基线`
+2. `employeeName` 和 `periodName` 从 `overview.json` 或上下文获取
+
+**脚本渲染**：AI 写完 JSON 后，立即执行：
+
+```bash
+python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py render_report_header \
+  --group_id "{groupId}" \
+  --month "{YYYY-MM}"
+```
+
+脚本会生成精确格式的 `report_header.md`（标题行 + 引用块，不含任何章节标题）。
 
 **第 3 章** `chapter3.md`：**不包含 `### 3. 年度结果预判评分` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），仅输出链接内容。
 
@@ -275,20 +371,24 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py build_e
 
 ```
 goals/{goalId}/
-  action_judgments.json   ← 3a
-  action_judgments.md     ← 3a
-  kr_analysis.md          ← 3b
-  goal_lamp.json          ← 3c
-  goal_report.md          ← 3d
-  (→ 远端已保存月报阅读)  ← 3d+ save_task_monthly_reading
-excluded_goals.md         ← 3e
-(→ 排除目标远端已保存说明) ← 3d+ save_task_monthly_reading（3e 后执行）
-overview_table.md         ← 3f
-conclusion.md             ← 3g
-report_header.md          ← 3h
-chapter3.md               ← 3h
-chapter4.md               ← 3h
-evidence_ledger.md        ← 3i
+  action_judgments.json      ← 3a (AI)
+  action_judgments.md        ← 3a (AI)
+  kr_analysis.md             ← 3b (AI)
+  goal_lamp.json             ← 3c (脚本)
+  goal_report_data.json      ← 3d (AI 产出 JSON)
+  goal_report.md             ← 3d (render_goal_report 脚本渲染)
+  (→ 远端已保存月报阅读)     ← 3d+ save_task_monthly_reading
+excluded_goals.md            ← 3e (AI)
+(→ 排除目标远端已保存说明)    ← 3d+ save_task_monthly_reading（3e 后执行）
+overview_data.json           ← 3f (AI 产出 JSON)
+overview_table.md            ← 3f (render_overview_table 脚本渲染)
+conclusion_data.json         ← 3g (AI 产出 JSON)
+conclusion.md                ← 3g (render_conclusion 脚本渲染)
+header_data.json             ← 3h (AI 产出 JSON)
+report_header.md             ← 3h (render_report_header 脚本渲染)
+chapter3.md                  ← 3h (AI)
+chapter4.md                  ← 3h (AI)
+evidence_ledger.md           ← 3i (脚本)
 ```
 
 **完成后输出**：`Step 3 完成 — 报告各章节已生成，待拼接`
