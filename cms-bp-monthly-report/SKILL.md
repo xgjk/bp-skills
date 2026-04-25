@@ -149,7 +149,7 @@ scripts/
 
 执行顺序：
 1. **4a**: `assemble_report` 脚本拼接最终报告 → `report_selfcheck.md`
-2. **4b**: **⚠️ 16 项合规性校验 + 5 条语言清洗（高优先级，不可跳过）**
+2. **4b**: **⚠️ 19 项合规性校验 + 5 条语言清洗（高优先级，不可跳过）**
    - 必须读取完整 `report_selfcheck.md`，逐条对照校验清单
    - 必须同时对照 `report-template-bp-self-check.md` 核查报告结构
    - 每项输出明确的通过/未通过结论，最终输出校验报告摘要

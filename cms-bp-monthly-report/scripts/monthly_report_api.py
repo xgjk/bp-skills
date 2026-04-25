@@ -306,12 +306,34 @@ def _judge_exclusion(plan_date_range, status_desc, month):
     return {"excluded": False, "reason": None}
 
 
+_BLACK_LAMP_PLACEHOLDERS = [
+    "# 汇报推进各情况总结",
+    "暂无汇报推进记录",
+    "暂无汇报",
+    "无推进记录",
+    "暂无推进记录",
+    "无汇报内容",
+]
+
+
 def _judge_black_lamp(progress_markdown):
-    """Check if an action has no valid evidence (black lamp)."""
+    """Check if an action has no valid evidence (black lamp).
+
+    Returns True when progressMarkdown is empty, whitespace-only,
+    or contains only placeholder text with no substantive content.
+    """
     if not progress_markdown or not progress_markdown.strip():
         return True
-    if progress_markdown.strip() == "# 汇报推进各情况总结":
+    stripped = progress_markdown.strip()
+    for placeholder in _BLACK_LAMP_PLACEHOLDERS:
+        if stripped == placeholder:
+            return True
+    content_without_headings = re.sub(r'^#{1,6}\s+.*$', '', stripped, flags=re.MULTILINE).strip()
+    if not content_without_headings:
         return True
+    for placeholder in _BLACK_LAMP_PLACEHOLDERS:
+        if content_without_headings == placeholder:
+            return True
     return False
 
 
@@ -1071,27 +1093,173 @@ def assemble_report(args):
         return fallback
 
     def _strip_leading_heading(text, expected_heading_text):
-        """Strip a duplicate heading from the beginning of text if AI included one.
+        """Strip duplicate heading lines from the beginning of text if AI included them.
 
-        Matches any markdown heading level (# to ######) whose text matches
-        ``expected_heading_text`` (case-insensitive, ignores leading numbering
-        like '2.1 ').  Only removes the first line if it matches.
+        Scans the first 5 non-empty lines.  Removes any markdown heading line
+        (# to ######) whose text matches ``expected_heading_text``
+        (case-insensitive, ignores leading numbering like '2.1 ').
+        Also removes blank lines that precede the first content line.
         """
         if not text:
             return text
-        lines = text.split("\n", 1)
-        first = lines[0].strip()
-        cleaned = re.sub(r'^#{1,6}\s+', '', first)
-        cleaned = re.sub(r'^\d+(\.\d+)*\s*', '', cleaned).strip()
-        expected = re.sub(r'^\d+(\.\d+)*\s*', '', expected_heading_text).strip()
-        if cleaned.lower() == expected.lower():
-            rest = lines[1] if len(lines) > 1 else ""
-            return rest.lstrip("\n")
-        return text
+        lines = text.split("\n")
+        expected = re.sub(r'^\d+(\.\d+)*\.?\s*', '', expected_heading_text).strip().lower()
+        cleaned_lines = []
+        scanned = 0
+        for line in lines:
+            if scanned >= 5:
+                cleaned_lines.append(line)
+                continue
+            stripped = line.strip()
+            if not stripped:
+                if scanned == 0:
+                    continue
+                cleaned_lines.append(line)
+                continue
+            scanned += 1
+            heading_match = re.match(r'^#{1,6}\s+(.*)', stripped)
+            if heading_match:
+                heading_text = heading_match.group(1)
+                normalized = re.sub(r'^\d+(\.\d+)*\.?\s*', '', heading_text).strip().lower()
+                if normalized == expected:
+                    continue
+            cleaned_lines.append(line)
+        result = "\n".join(cleaned_lines).lstrip("\n")
+        return result
+
+    LAMP_COLOR_MAP = {
+        "green": {"emoji": "🟢", "css": "#2e7d32"},
+        "yellow": {"emoji": "🟡", "css": "#b26a00"},
+        "red": {"emoji": "🔴", "css": "#c62828"},
+        "black": {"emoji": "⚫", "css": "#212121"},
+    }
+
+    PEOPLE_SUGGEST_BLOCK = (
+        '<div class="people-suggest">\n'
+        '  <span style="color:{css}; font-weight:700;">人工判断：待确认（请填写：同意 / 不同意）</span>\n'
+        '  <span style="color:{css}; font-weight:700;">若同意：请明确填写"同意"。</span>\n'
+        '  <span style="color:{css}; font-weight:700;">若不同意：请填写理由类别（BP不清晰 / 举证材料不足 / AI判断错误 / 其他）及具体说明。</span>\n'
+        '  <span style="color:{css}; font-weight:700;">整改方案：待补充</span>\n'
+        '  <span style="color:{css}; font-weight:700;">承诺完成时间：待补充</span>\n'
+        '  <span style="color:{css}; font-weight:700;">下周期具体举措：待补充</span>\n'
+        '</div>'
+    )
+
+    def _fix_goal_lamp_consistency(report_text, goals_dir):
+        """Validate and fix goal-level lamp colors in assembled report.
+
+        For each goal with a goal_lamp.json, checks that the goal-level
+        '四灯判断块' uses the correct lamp color. If inconsistent, replaces
+        the wrong lamp block with the correct one.
+        """
+        if not os.path.isdir(goals_dir):
+            return report_text
+
+        fixes_applied = 0
+        for goal_id in sorted(os.listdir(goals_dir)):
+            lamp_path = os.path.join(goals_dir, goal_id, "goal_lamp.json")
+            if not os.path.isfile(lamp_path):
+                continue
+            with open(lamp_path, "r", encoding="utf-8") as f:
+                lamp_data = json.load(f)
+            expected_lamp = lamp_data.get("goalLamp", "green")
+            expected_emoji = lamp_data.get("goalLampEmoji", "🟢")
+            expected_info = LAMP_COLOR_MAP.get(expected_lamp, LAMP_COLOR_MAP["green"])
+
+            goal_report_path = os.path.join(goals_dir, goal_id, "goal_report.md")
+            if not os.path.isfile(goal_report_path):
+                continue
+            with open(goal_report_path, "r", encoding="utf-8") as f:
+                goal_report = f.read()
+
+            conclusion_marker = "**目标级综合灯色结论**"
+            marker_pos = goal_report.find(conclusion_marker)
+            if marker_pos < 0:
+                continue
+
+            conclusion_section = goal_report[marker_pos:]
+
+            lamp_match = re.search(
+                r'<span style="color:#([0-9a-fA-F]{6});\s*font-weight:700;">四灯判断：(.)</span>',
+                conclusion_section,
+            )
+            if not lamp_match:
+                continue
+
+            found_css = lamp_match.group(1)
+            found_emoji = lamp_match.group(2)
+
+            if found_emoji == expected_emoji and found_css.lower() == expected_info["css"][1:].lower():
+                continue
+
+            _log(f"Lamp mismatch for goal {goal_id}: found {found_emoji} (#{found_css}), "
+                 f"expected {expected_emoji} ({expected_info['css']}). Auto-correcting...")
+
+            old_lamp_line = lamp_match.group(0)
+            new_lamp_line = (f'<span style="color:{expected_info["css"]}; font-weight:700;">'
+                           f'四灯判断：{expected_emoji}</span>')
+            goal_report = goal_report.replace(old_lamp_line, new_lamp_line, 1)
+
+            old_css = f"#{found_css}"
+            new_css = expected_info["css"]
+            section_after = goal_report[marker_pos:]
+            section_after = section_after.replace(
+                f'style="color:{old_css}; font-weight:700;"',
+                f'style="color:{new_css}; font-weight:700;"',
+            )
+            goal_report = goal_report[:marker_pos] + section_after
+
+            if expected_lamp != "green" and '<div class="people-suggest">' not in conclusion_section:
+                _log(f"  Adding missing people-suggest block for goal {goal_id}")
+                insert_block = "\n" + PEOPLE_SUGGEST_BLOCK.format(css=new_css)
+                last_span_end = goal_report.rfind("</span>", marker_pos)
+                if last_span_end > 0:
+                    goal_report = goal_report[:last_span_end + 7] + insert_block + goal_report[last_span_end + 7:]
+
+            if expected_lamp == "green" and '<div class="people-suggest">' in conclusion_section:
+                ps_start = goal_report.find('<div class="people-suggest">', marker_pos)
+                ps_end = goal_report.find('</div>', ps_start)
+                if ps_start > 0 and ps_end > 0:
+                    goal_report = goal_report[:ps_start] + goal_report[ps_end + 6:]
+
+            with open(goal_report_path, "w", encoding="utf-8") as f:
+                f.write(goal_report)
+            fixes_applied += 1
+
+        if fixes_applied:
+            _log(f"Lamp consistency: {fixes_applied} goal(s) auto-corrected")
+
+        return fixes_applied
+
+    def _strip_header_extra_headings(header_text):
+        """Remove any heading lines from report_header.md beyond the title and blockquote."""
+        if not header_text:
+            return header_text
+        lines = header_text.split("\n")
+        cleaned = []
+        past_blockquote = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("> "):
+                cleaned.append(line)
+                past_blockquote = True
+                continue
+            if past_blockquote and stripped.startswith(">"):
+                cleaned.append(line)
+                continue
+            if past_blockquote and re.match(r'^#{1,6}\s+', stripped):
+                _log(f"Stripping extra heading from report_header.md: {stripped}")
+                continue
+            cleaned.append(line)
+            if stripped.startswith("> "):
+                past_blockquote = True
+        return "\n".join(cleaned)
 
     parts = []
 
-    parts.append(_read_if_exists(os.path.join(wd, "report_header.md"), "# BP自查报告\n"))
+    header = _read_if_exists(os.path.join(wd, "report_header.md"), "# BP自查报告\n")
+    header = _strip_header_extra_headings(header)
+    parts.append(header)
     parts.append("\n---\n")
 
     parts.append("### 1. 总体自查结论\n\n")
@@ -1106,6 +1274,7 @@ def assemble_report(args):
     overview = _read_if_exists(os.path.join(wd, "overview_table.md"), "")
     if overview:
         overview = _strip_leading_heading(overview, "目标清单总览")
+        overview = _strip_leading_heading(overview, "目标级自查明细")
         parts.append("#### 2.1 目标清单总览\n")
         parts.append(overview)
         parts.append("\n")
@@ -1113,6 +1282,9 @@ def assemble_report(args):
     parts.append("#### 2.2 目标明细\n")
 
     goals_dir = os.path.join(wd, "goals")
+
+    _fix_goal_lamp_consistency("", goals_dir)
+
     goal_count = 0
     if os.path.isdir(goals_dir):
         for goal_id in sorted(os.listdir(goals_dir)):

@@ -90,6 +90,13 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 
 **输出**：`goals/{goalId}/goal_report.md`
 
+**⚠️ 灯色锚定规则（MANDATORY — 严禁违反）**：
+1. 生成"目标级综合灯色结论"前，**必须先读取** `goal_lamp.json` 的 `goalLamp` 和 `goalLampEmoji` 字段
+2. "结论一句话"的灯色 span **必须使用** `goalLampEmoji` 的值，严禁 AI 自行判断替代
+3. "四灯判断块"的灯色 **必须使用** `goalLamp` 的值来选择对应模板（green→绿灯2行 / yellow→黄灯8行 / red→红灯8行 / black→黑灯8行），**严禁 AI 二次判断覆盖脚本聚合结果**
+4. "结论一句话"灯色与"四灯判断块"灯色 **必须完全一致**，均来自 `goal_lamp.json`
+5. 若 AI 对脚本聚合结果有异议，可在判断理由中注明"AI 建议为 X 灯，脚本聚合为 Y 灯，以脚本为准"，但最终灯色仍以脚本为准
+
 **严格按模板结构**（见 report-template-bp-self-check.md 2.2 节），包含 4 个必需子章节：
 
 ```markdown
@@ -108,8 +115,8 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py aggrega
 （若无偏差写"本目标本期无重大偏差"）
 
 **目标级综合灯色结论**
-结论一句话：...
-（嵌入四灯判断块）
+结论一句话：[从 goal_lamp.json 读取灯色] ...
+（嵌入四灯判断块，灯色必须与 goal_lamp.json 的 goalLamp 一致）
 ```
 
 ---
@@ -164,6 +171,10 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_ta
 
 **必须 7 列**：目标编号 / BP目标 / 本月承诺口径 / 本月实际 / 证据引用 / 目标灯色 / 结论一句话。
 
+**⚠️ 灯色数据源规则（MANDATORY）**：
+1. 总览表中每个参与自查目标的"目标灯色"列，**必须从该目标的 `goal_lamp.json` 的 `goalLampEmoji` 字段读取**，不得由 AI 自行判断
+2. 被排除目标（★未启动）的灯色列使用 `★` 标记，不读取 `goal_lamp.json`
+
 **目标编号必须使用系统 `fullLevelNumber`**（如 `P1001-7`），**严禁使用自编流水号**（如 001、002）。数据源优先级：先读 `overview.json` 的 `goals[].fullLevelNumber`（Step 2b 执行后已自动回填），若为空则从 `goals/{goalId}/progress.json` 的 `goalDetail.fullLevelNumber` 字段读取。
 
 所有目标均列入（含★未启动的目标）。
@@ -175,6 +186,10 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_ta
 读取所有目标的 `goal_report.md` + `goal_lamp.json`，从全局视角生成 `conclusion.md`。
 
 **注意：`conclusion.md` 不包含 `### 1. 总体自查结论` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），直接从 `#### 1.1` 开始输出。
+
+**⚠️ 灯色统计数据源规则（MANDATORY）**：
+1. 1.2 灯色分布概览中的统计数字，**必须遍历所有参与自查目标的 `goal_lamp.json` 文件**，读取 `goalLamp` 字段逐个计数，**不得凭记忆、推断或 AI 自行判断填写**
+2. 具体操作：逐个读取 `goals/{goalId}/goal_lamp.json`，统计 `goalLamp` 为 `green`/`yellow`/`red`/`black` 的数量，被排除目标不计入四色灯统计，仅计入"★未启动"
 
 **输出结构必须严格遵守以下格式：**
 
@@ -224,6 +239,11 @@ python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py save_ta
 > 证据说明：...
 > 解释口径：...
 ```
+
+**⚠️ report_header.md 内容边界规则（MANDATORY）**：
+- `report_header.md` **仅包含**上方代码块中的内容（报告标题 `#` 行 + 引用块 `>` 行），**禁止包含任何其他章节标题行**
+- 禁止在 header 中写入 `## 目标明细`、`### 1. 总体自查结论`、`### 2. 目标级自查明细` 等章节标题
+- 拼接脚本不会对 `report_header.md` 执行标题去重，AI 多写的任何标题都会原样出现在最终报告中导致结构重复
 
 **第 3 章** `chapter3.md`：**不包含 `### 3. 年度结果预判评分` 标题**（该标题由 `assemble_report` 脚本在拼接时自动插入），仅输出链接内容。
 
