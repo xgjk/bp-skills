@@ -270,21 +270,46 @@ def _slim_goal_detail(detail):
 
 def _work_dir(group_id, month):
     """Return the per-run working directory path."""
+    custom = os.environ.get("BP_WORK_DIR", "").strip()
+    if custom:
+        return os.path.join(custom, f"bp_report_{group_id}_{month}")
     return f"/Users/openclaw-data/bp/bp_report_{group_id}_{month}"
 
 
 def _goal_dir(group_id, month, goal_id):
     """Return the per-goal working directory path.
 
-    In standalone mode (Skill A), each goal has its own top-level directory:
-      /Users/openclaw-data/bp/{groupId}_{goalId}_{month}/
-    In aggregate mode (Skill B), goals are nested under the report directory:
-      /Users/openclaw-data/bp/bp_report_{groupId}_{month}/goals/{goalId}/
+    In standalone mode (Skill A), always uses:
+    /Users/openclaw-data/bp/{groupId}_{goalId}_{month}/
+    In aggregate mode (Skill B), goals are nested under the report directory.
     """
     standalone = os.environ.get("BP_GOAL_STANDALONE")
     if standalone and standalone.lower() in ("1", "true", "yes"):
         return f"/Users/openclaw-data/bp/{group_id}_{goal_id}_{month}"
     return os.path.join(_work_dir(group_id, month), "goals", str(goal_id))
+
+
+def _prepare_goal_dir(group_id, month, goal_id):
+    """Ensure standalone goal directory is ready for this run.
+
+    Logic:
+    - If directory exists: clear all files/subdirectories.
+    - If directory does not exist: create it.
+    """
+    gd = _goal_dir(group_id, month, goal_id)
+    if os.path.isdir(gd):
+        import shutil
+        for item in os.listdir(gd):
+            item_path = os.path.join(gd, item)
+            if os.path.isfile(item_path):
+                os.remove(item_path)
+            elif os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+        _log(f"Standalone mode: cleared existing directory {gd}")
+    else:
+        os.makedirs(gd, exist_ok=True)
+        _log(f"Standalone mode: created directory {gd}")
+    return gd
 
 
 def _parse_plan_date_range(plan_date_range):
@@ -338,10 +363,15 @@ def _judge_exclusion(plan_date_range, status_desc, month):
 _BLACK_LAMP_PLACEHOLDERS = [
     "# 汇报推进各情况总结",
     "暂无汇报推进记录",
+    "暂无汇报推进记录。",
     "暂无汇报",
+    "暂无汇报。",
     "无推进记录",
+    "无推进记录。",
     "暂无推进记录",
+    "暂无推进记录。",
     "无汇报内容",
+    "无汇报内容。",
 ]
 
 
@@ -502,6 +532,10 @@ def collect_goal_progress(args):
     if not args.month:
         return {"error": "month (YYYY-MM) is required for collect_goal_progress"}
 
+    standalone = os.environ.get("BP_GOAL_STANDALONE", "").lower() in ("1", "true", "yes")
+    if standalone:
+        _prepare_goal_dir(args.group_id, args.month, args.goal_id)
+
     errors = []
 
     _log(f"Fetching goal detail: {args.goal_id}")
@@ -586,6 +620,12 @@ def collect_goal_progress(args):
                     action.get("statusDesc", ""),
                     args.month,
                 )
+                # 父 KR 被排除时，举措同样标记为排除
+                if not action_exclusion["excluded"] and kr_exclusion["excluded"]:
+                    action_exclusion = {
+                        "excluded": True,
+                        "reason": f"父KR({kr.get('fullLevelNumber', kr_id)})已被排除：{kr_exclusion.get('reason', '')}",
+                    }
 
                 action_md = ""
                 action_reports = []
@@ -642,17 +682,6 @@ def collect_goal_progress(args):
         output["errors"] = errors
 
     gd = _goal_dir(args.group_id, args.month, args.goal_id)
-    standalone = os.environ.get("BP_GOAL_STANDALONE", "").lower() in ("1", "true", "yes")
-    if standalone:
-        if os.path.isdir(gd):
-            import shutil
-            for item in os.listdir(gd):
-                item_path = os.path.join(gd, item)
-                if os.path.isfile(item_path):
-                    os.remove(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-            _log(f"Standalone mode: cleared existing directory {gd}")
     os.makedirs(gd, exist_ok=True)
     output_path = args.output or os.path.join(gd, "progress.json")
     with open(output_path, "w", encoding="utf-8") as f:
@@ -1949,7 +1978,7 @@ def split_prev_report_by_goal(args):
 
     escaped_number = re.escape(full_level_number)
     pattern = re.compile(
-        rf'^(#{3,6}\s+{escaped_number}[｜|])',
+        rf'^(#{{1,6}}\s+{escaped_number}[｜|])',
         re.MULTILINE,
     )
 
@@ -1962,7 +1991,9 @@ def split_prev_report_by_goal(args):
         return {"success": True, "outputFile": output_path, "hasBaseline": False}
 
     start = match.start()
-    next_heading = re.compile(r'^#{3,5}\s+(?:P\d+|###?\s+\d)', re.MULTILINE)
+    heading_level = len(match.group(1).split()[0])
+    # 下一个同级或更高级（即 # 数量 <= heading_level）的标题为截止边界
+    next_heading = re.compile(rf'^#{{1,{heading_level}}}\s', re.MULTILINE)
     rest = full_text[match.end():]
     next_match = next_heading.search(rest)
     if next_match:
