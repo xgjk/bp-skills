@@ -1,17 +1,15 @@
 ---
-name: bp-report-assembler
+name: cms-bp-monthly-report
 description: >-
-  BP月报整合生成工具。从远端读取各目标的结构化JSON数据，
+  发送个人BP月报、BP月报整合生成工具。从远端读取各目标的结构化JSON数据，
   AI只做全局结论生成，脚本渲染全部Markdown章节并拼接为完整月报。
-  当用户需要生成或预览个人BP月度汇报、月报、自查报告时使用。
-  前置条件：所有目标已通过 bp-goal-analyzer 完成分析并保存到远端。
+  当用户需要保存月报到系统时使用。
 ---
 
 # BP 月报整合生成器
 
 从远端读取各目标的 `goal_complete.json`，AI 只做一件事——生成全局结论，其余全部由脚本渲染 + 拼接。
 
-> **前置条件**：所有目标已通过 `bp-goal-analyzer`（Skill A）完成分析并通过 `save_task_monthly_reading` 保存到远端。
 > **所有 references/ 下的文件均为强制约束**，读取后必须逐条遵守。
 
 ## 目录结构
@@ -73,7 +71,7 @@ export BP_OPEN_API_APP_KEY="{用户提供的密钥}"
 
 **1a** — 确定目标员工与月份：
 
-获取 `groupId`、`employeeId`、`employeeName`、`periodName`、`month`。`periodName` 由脚本自动从月份推断（格式：`{年份}年BP`）。
+获取 `groupId`、`employeeId`、`employeeName`、`month`。
 
 **1b** — 标记生成开始：
 
