@@ -47,10 +47,9 @@ scripts/
 
 ```bash
 export BP_OPEN_API_APP_KEY="{用户提供的密钥}"
-export BP_GOAL_STANDALONE=1
 ```
 
-`BP_GOAL_STANDALONE=1` 使工作目录切换为单目标独立模式：`/Users/openclaw-data/bp/{groupId}_{goalId}_{month}/`。
+工作目录固定为 `/Users/openclaw-data/bp/{groupId}_{goalId}_{month}/`，每次运行自动清空或创建。
 
 ## 禁止事项
 
