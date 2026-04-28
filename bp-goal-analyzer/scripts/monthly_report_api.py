@@ -177,6 +177,14 @@ def _goal_dir(group_id, month, goal_id):
     return f"/Users/openclaw-data/bp/{group_id}_{goal_id}_{month}"
 
 
+def _work_dir(group_id, month):
+    """Return the group-level working directory path for prev reports.
+
+    Fixed: /Users/openclaw-data/bp/bp_report_{groupId}_{month}/
+    """
+    return f"/Users/openclaw-data/bp/bp_report_{group_id}_{month}"
+
+
 def _prepare_goal_dir(group_id, month, goal_id):
     """Ensure standalone goal directory is ready for this run.
 
@@ -934,7 +942,7 @@ def collect_previous_month_data(args):
     elif report_month:
         wd = _work_dir(args.group_id, report_month)
     else:
-        wd = f"/Users/openclaw-data/bp/bp_report_{args.group_id}_prev"
+        wd = _work_dir(args.group_id, args.group_id)
     reports_dir = os.path.join(wd, "prev_reports")
     os.makedirs(reports_dir, exist_ok=True)
 

@@ -7,7 +7,7 @@
 ## 调用方式
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py <action> [options]
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py <action> [options]
 ```
 
 ---

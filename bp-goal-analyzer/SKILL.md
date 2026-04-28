@@ -1,7 +1,7 @@
 ---
 name: bp-goal-analyzer
 description: >-
-  BP单目标分析工具。为单个BP目标收集数据、判灯、做KR差距分析，
+  BP单目标、月份分析工具。为单个BP目标收集数据、判灯、做KR差距分析，
   生成结构化JSON并保存到远端。每次只处理一个目标，可并行运行。
   当用户需要为单个BP目标生成分析数据时使用。
 ---
@@ -34,11 +34,11 @@ scripts/
 
 ## 输入参数
 
-| 参数 | 说明 | 必填 |
-|------|------|------|
-| `groupId` | 个人节点分组 ID | 是 |
-| `goalId` | 目标 ID | 是 |
-| `month` | 报告月份（YYYY-MM） | 是 |
+| 参数 | 说明            | 必填 |
+|------|---------------|------|
+| `groupId` | 个人节点分组 ID     | 是 |
+| `goalId` | 目标 ID         | 是 |
+| `month` | 分析月份（YYYY-MM） | 是 |
 | `employeeId` | 员工 ID（用于证据分级） | 是 |
 
 ## 环境变量
@@ -68,7 +68,7 @@ export BP_OPEN_API_APP_KEY="{用户提供的密钥}"
 **1a** — 采集目标数据：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py collect_goal_progress \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py collect_goal_progress \
   --group_id {groupId} --goal_id {goalId} --month {month}
 ```
 
@@ -79,14 +79,14 @@ python3 {skill_path}/scripts/monthly_report_api.py collect_goal_progress \
 **1b** — 采集上月数据（用于 KR 环比）：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py collect_previous_month_data \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py collect_previous_month_data \
   --group_id {groupId} --goal_id {goalId} --month {上月YYYY-MM} --report_month {month}
 ```
 
 **1c** — 切割本目标的上月章节：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py split_prev_report_by_goal \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py split_prev_report_by_goal \
   --group_id {groupId} --goal_id {goalId} --month {month}
 ```
 
@@ -95,7 +95,7 @@ python3 {skill_path}/scripts/monthly_report_api.py split_prev_report_by_goal \
 **1d** — 构建证据台账：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py build_goal_evidence \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py build_goal_evidence \
   --group_id {groupId} --goal_id {goalId} --month {month} --employee_id {employeeId}
 ```
 
@@ -104,7 +104,7 @@ python3 {skill_path}/scripts/monthly_report_api.py build_goal_evidence \
 **1e** — 组装判灯材料 + 预填黑灯：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py build_judgment_input \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py build_judgment_input \
   --group_id {groupId} --goal_id {goalId} --month {month} --employee_id {employeeId}
 ```
 
@@ -167,7 +167,7 @@ python3 {skill_path}/scripts/monthly_report_api.py build_judgment_input \
 #### 2c: 灯色聚合（脚本）
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py aggregate_lamp_colors \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py aggregate_lamp_colors \
   --group_id {groupId} --goal_id {goalId} --month {month}
 ```
 
@@ -209,7 +209,7 @@ AI 读取 `progress.json`（目标信息）+ `action_judgments.json` + `kr_analy
 **3a** — 拼装完整 JSON：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py assemble_goal_json \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py assemble_goal_json \
   --group_id {groupId} --goal_id {goalId} --month {month}
 ```
 
@@ -218,7 +218,7 @@ python3 {skill_path}/scripts/monthly_report_api.py assemble_goal_json \
 **3b** — 校验：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py validate_goal_json \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py validate_goal_json \
   --group_id {groupId} --goal_id {goalId} --month {month}
 ```
 
@@ -229,7 +229,7 @@ python3 {skill_path}/scripts/monthly_report_api.py validate_goal_json \
 **3c** — 保存到远端：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py save_task_monthly_reading \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py save_task_monthly_reading \
   --task_id {goalId} --month {month} \
   --content_file {工作目录}/goal_complete.json
 ```
@@ -246,10 +246,10 @@ python3 {skill_path}/scripts/monthly_report_api.py save_task_monthly_reading \
 2. 直接保存：
 
 ```bash
-python3 {skill_path}/scripts/monthly_report_api.py assemble_goal_json \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py assemble_goal_json \
   --group_id {groupId} --goal_id {goalId} --month {month}
 
-python3 {skill_path}/scripts/monthly_report_api.py save_task_monthly_reading \
+python3 /home/node/.openclaw/skills/bp-goal-analyzer/scripts/monthly_report_api.py save_task_monthly_reading \
   --task_id {goalId} --month {month} \
   --content_file {工作目录}/goal_complete.json
 ```
@@ -258,10 +258,10 @@ python3 {skill_path}/scripts/monthly_report_api.py save_task_monthly_reading \
 
 ## 边界场景
 
-| 场景 | 处理 |
-|------|------|
-| 目标不参与自查（★ 未启动） | 脚本生成排除 JSON → 直接保存 |
-| 所有举措均为黑灯 | 脚本预填完成 → AI 2a 跳过 |
+| 场景 | 处理                         |
+|------|----------------------------|
+| 目标不参与自查（★ 未启动） | 脚本生成排除 JSON → 直接保存         |
+| 所有举措均为黑灯 | 脚本预填完成 → AI 2a 跳过          |
 | 所有 KR 被排除 / KR 列表为空 | `kr_analysis.json` 空数组 → 灯色黑灯 |
 | 首月无上月数据 | `prev_goal_section.md` 写"首月无基线" |
-| 校验失败 | AI 修正片段 → 重新拼装 → 最多重试 2 次 |
+| 校验失败 | AI 修正片段 → 重新拼装 → 最多重试 3 次  |
