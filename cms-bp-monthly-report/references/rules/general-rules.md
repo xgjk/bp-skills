@@ -1,41 +1,28 @@
-# 通用规则与约束
+# 通用规则
 
-> 本文件为强制约束，贯穿整个月报生成流程（Step 1 – Step 4）。
-
----
-
-## 通用约束
-
-- 所有 ID 参数保持字符串原样传递，**严禁 parseInt 或 Number 转换**
-- **严禁测试保存**：`save_openclaw_report` 会直接保存报告到 BP 系统，只有报告内容完整生成且合规性校验全部通过后才能调用
-- **校验通过后直接保存到 BP 系统**，不再等待用户确认
-- **禁止一步生成整篇报告**，必须走 3a → 3b → 3c → 3d 四步
-- 汇报接收人是员工本人（`employeeId`），**不是** `groupId`
+> 本文件为强制约束，补充 SKILL.md 未覆盖的运行时细节。
 
 ---
 
-## 发送与重试规则
+## AI 产出约束（`conclusion_data.json`）
 
-- 发送报错重试： `resultCode=401` 、接口报错等自动等待 60 秒后重试一次
-
----
-
-## 失败处理
-
-若任何步骤失败，必须立即更新状态为"失败"并记录原因：
-
-```bash
-python3 .openclaw/skills/bp-monthly-report/scripts/monthly_report_api.py update_report_status \
-  --group_id "{groupId}" \
-  --month "{YYYY-MM}" \
-  --status 2 \
-  --fail_reason "具体失败原因描述"
-```
+- 使用中文，正式商务风格，句式自然（主谓宾完整）
+- 禁止空值直出（如"无数据"），转为有引导意义的自然语句
+- 禁止技术字段泄漏（reportId、taskId 等 API 字段名不得出现在文本中）
+- `topDeviations` 中的 `goalNumber` 必须与对应 `goal_complete.json` 的 `goalInfo.fullLevelNumber` 一致
 
 ---
 
-## 错误处理
+## 证据引用格式
 
-- BP 数据获取失败时，提示用户检查 `BP_OPEN_API_APP_KEY` 配置
-- 报告保存失败时，保留 `report_selfcheck.md` 文件，调用 `update_report_status --status 2` 并提示用户可手动重试
-- 某个目标下无汇报数据时，在报告中标注"本月暂未收到工作汇报"并按灯色规则判断，不中断整体流程
+- 当月证据：`[R编号](huibao://view?id={reportId})`，不附带书名号标题
+- 上月参考：`[RP编号](huibao://view?id={reportRecordId})`
+- R 和 RP 编号使用不同前缀，**严禁混用**
+- AI 在 `conclusion_data.json` 中不需要包含证据引用，正文证据全部由脚本渲染
+
+---
+
+## 保存约束
+
+- **校验通过后直接保存到 BP 系统**，无需等待用户确认
+- `save_openclaw_report` 会直接写入线上数据，只有校验全部通过后才能调用
