@@ -605,7 +605,15 @@ def render_full_report(args):
         month_display = args.month
 
     employee_name = getattr(args, "employee_name", None) or ""
+
+    # period_name: if not provided, auto-infer from month (e.g., "2026年BP")
     period_name = getattr(args, "period_name", None) or ""
+    if not period_name and args.month:
+        try:
+            year = args.month[:4]
+            period_name = f"{year}年BP"
+        except (ValueError, IndexError):
+            period_name = ""
 
     # ── Render report_header.md ──
     if employee_name:
@@ -730,7 +738,7 @@ def render_full_report(args):
         c = g.get("commitment", {})
         lines.append(f'承诺口径：{c.get("standard", "")}  ')
         lines.append(f'本月实际：{c.get("actual", "")}  ')
-        lines.append(f'差异点（若有）：{c.get("gap", "无")}  ')
+        lines.append(f'差异点：{c.get("gap") or "无"}  ')
         lines.append(f'证据：{c.get("evidence", "")}')
         lines.append("")
 
